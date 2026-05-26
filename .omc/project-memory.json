@@ -1,0 +1,188 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1779658262169,
+  "projectRoot": "D:\\_projects\\NorthStarGuardian",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pytest",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "examples",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1779658262157,
+      "keyFiles": [
+        "ADDENDUM.md",
+        "SPEC.md"
+      ]
+    },
+    "examples": {
+      "path": "examples",
+      "purpose": "Example code",
+      "fileCount": 4,
+      "lastAccessed": 1779658262157,
+      "keyFiles": [
+        "consumer-workflow.yml",
+        "sample-constitution.md",
+        "sample-dashboard.html",
+        "sample-journal-entry.md"
+      ]
+    },
+    "guardian": {
+      "path": "guardian",
+      "purpose": null,
+      "fileCount": 10,
+      "lastAccessed": 1779658262158,
+      "keyFiles": [
+        "analyze.py",
+        "chronicle.py",
+        "cli.py",
+        "constitution.py",
+        "dashboard.py"
+      ]
+    },
+    "northstar_guardian.egg-info": {
+      "path": "northstar_guardian.egg-info",
+      "purpose": null,
+      "fileCount": 6,
+      "lastAccessed": 1779658262158,
+      "keyFiles": [
+        "dependency_links.txt",
+        "entry_points.txt",
+        "PKG-INFO",
+        "requires.txt",
+        "SOURCES.txt"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 12,
+      "lastAccessed": 1779658262158,
+      "keyFiles": [
+        "conftest.py",
+        "test_analyze.py",
+        "test_chronicle.py",
+        "test_cli.py",
+        "test_constitution.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "C:\\Users\\pmacl\\.claude\\projects\\D---projects-NorthStarGuardian\\memory\\project_threat_model.md",
+      "accessCount": 2,
+      "lastAccessed": 1779659043228,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\pmacl\\.claude\\projects\\D---projects-NorthStarGuardian\\memory\\MEMORY.md",
+      "accessCount": 2,
+      "lastAccessed": 1779659046164,
+      "type": "file"
+    },
+    {
+      "path": "docs\\ADDENDUM.md",
+      "accessCount": 1,
+      "lastAccessed": 1779658392688,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 1,
+      "lastAccessed": 1779658392729,
+      "type": "file"
+    },
+    {
+      "path": "docs\\SPEC.md",
+      "accessCount": 1,
+      "lastAccessed": 1779658392844,
+      "type": "file"
+    },
+    {
+      "path": "guardian\\templates\\prompts\\assess_intent.md.j2",
+      "accessCount": 1,
+      "lastAccessed": 1779658854117,
+      "type": "file"
+    },
+    {
+      "path": "guardian\\templates\\prompts\\evaluate_alignment.md.j2",
+      "accessCount": 1,
+      "lastAccessed": 1779658854675,
+      "type": "file"
+    },
+    {
+      "path": "guardian\\templates\\prompts\\detect_anti_patterns.md.j2",
+      "accessCount": 1,
+      "lastAccessed": 1779658855230,
+      "type": "file"
+    },
+    {
+      "path": "guardian\\templates\\prompts\\assign_saga.md.j2",
+      "accessCount": 1,
+      "lastAccessed": 1779658856234,
+      "type": "file"
+    },
+    {
+      "path": "guardian\\templates\\constitution.md.j2",
+      "accessCount": 1,
+      "lastAccessed": 1779658856813,
+      "type": "file"
+    },
+    {
+      "path": "guardian\\analyze.py",
+      "accessCount": 1,
+      "lastAccessed": 1779658857319,
+      "type": "file"
+    },
+    {
+      "path": "guardian\\cli.py",
+      "accessCount": 1,
+      "lastAccessed": 1779658857859,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
