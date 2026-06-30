@@ -52,6 +52,17 @@ docs/
 | `/dashboard` | Regenerate `.github/guardian/memory/dashboard.html` |
 | `/status` | Quick health check: active debt timers and last interview |
 
+## Automation
+
+While Guardian is designed to be triggered via GitHub Actions, the CLI can be run manually or as scheduled jobs.
+
+| CLI Command | Purpose |
+|---|---|
+| `guardian interview` | Triggered by `pull_request` events to analyze diff and post comments. |
+| `guardian command` | Triggered by `issue_comment` events to handle slash commands. |
+| `guardian sweep-debt` | Scheduled job to check debt timers and escalate expired ones. |
+| `guardian preview-dashboard` | Local dev: render the dashboard to a local HTML file. |
+
 ## Configuration
 
 Runtime configuration lives at `.github/guardian/guardian-config.json`.
