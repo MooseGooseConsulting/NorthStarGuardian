@@ -1,52 +1,41 @@
-# Agent Sweep - 2026-06-30
+# 'manage_todo_list'
 
-## Baseline
-- Branch: copilot/agent-sweep-20260630
-- Last commit: Pivot blocking agent governance (from migrate-to-openai branch prior to this one)
-- Project: northstar-guardian
-- Language/framework: Python
-- Existing uncommitted changes: .omc/project-memory.json
-- Format / Lint: `ruff check .` - All checks passed!
-- Typecheck: Skipped
-- Tests: `python -m pytest` - 251 passed in 2.00s
-- Build: Skipped (no explicit build command defined)
-- Tool substitutions: None
+### Active
+- [ ] P2: Performance & Observability (Drafting)
+  - Files: `guardian/analyze.py` (caching), `guardian/cli.py` (tracing)
+  - Why: Repeated diff analysis is slow; difficult to debug LLM token usage.
 
-## Discovery Findings
-- **Correctness/Config**: Broad `except Exception:` blocks in `guardian/cli.py` silently swallow errors when reading `guardian-config.json`, the chronicle, or the dashboard, hiding real failures like invalid JSON.
-- **Security/Git**: `subprocess.run` in `guardian/north_star.py` does not protect against a `ref` parameter starting with `-`, which could be misparsed as a git flag.
-- **Test/System Health**: Found 0 skipped tests. Project lacks IDE configuration for ruff/pytest (P3/Low repo impact).
+### Completed
+- [x] Baseline setup and discovery - [522f153] - `ruff check` and `pytest` pass.
+- [x] P1: Workstream 1: Core Reliability Hardening (Exceptions & Git) - [cd74234] - Added path injection check and improved error reporting in status handler.
+- [x] P1: Workstream 2: CLI & I/O Test Suite Expansion - [2612e8c] - Improved `cli.py` coverage to 65% and added `tests/test_github_io.py`.
+- [x] P2: Workstream 3: IDE & Developer Experience - [95e7d79] - Added `.vscode/settings.json` (ignored) and updated `README.md`.
+- [x] P1: Workstream 4: Advanced Correctness & LLM Robustness - [f6e4a2b] - Atomic writes; robust JSON/regex parsing; `dateutil` integration.
 
-## Ranked Task List
-- [ ] P1: Fix swallowed configuration and IO exceptions
-  - Files: `guardian/cli.py`, `guardian/github_io.py`
-  - Finding: Broad `except Exception:` blocks silently swallow JSON decoding or file missing errors, masking runtime failures.
-  - Proposed change: Catch specific parse and IO exceptions where possible, or log/print the error instead of `pass`. Let `GuardianConfig` fail clearly on bad JSON rather than silently overriding.
-  - Verification: `python -m pytest tests/`
-  - Risk: Medium
-  - Status: Pending
-- [ ] P2: Fortify git show against branch flag injection
-  - Files: `guardian/north_star.py`
-  - Finding: `ref` strings starting with `-` could be misconstrued as git flags in `git show {ref}:{path}`.
-  - Proposed change: Ensure safe revision formatting, perhaps by validating `ref` doesn't start with `-`, or use standard git mechanisms to force revision parsing.
-  - Verification: `python -m pytest tests/`
-  - Risk: Low
-  - Status: Pending
+### Blocked
+- [ ] None
 
-## Execution Log
-(Pending)
+### Candidate backlog
+- [ ] P1: Workstream 2: CLI & I/O Test Suite Expansion
+  - Files: `tests/test_cli.py`, `tests/test_github_io.py`
+  - Why: Coverage for `cli.py` (38%) and `github_io.py` (34%) is too low for a core pipeline.
+  - Verification: `pytest --cov=guardian`
+- [ ] P2: Workstream 3: IDE & Developer Experience
+  - Files: `.vscode/settings.json`, `README.md`
+  - Why: Missing IDE config; minor docs drift.
+  - Verification: Manual check of help and settings.
 
-## Verification Results
-(Pending)
-
-## Diff Review
-(Pending)
-
-## #todo
-(None)
-
-## Blocked / #askQuestion Items
-(None)
-
-## Assumptions
-- Codebase does not use static type checking (mypy not configured in dev dependencies)
+### PR-sized workstreams
+- [x] Workstream 1: Core Reliability Hardening
+  - Commits: cd74234
+  - Verification: `pytest tests/test_north_star_sources.py`
+- [x] Workstream 2: CLI & I/O Test Suite Expansion
+  - Commits: 2612e8c
+  - Verification: `pytest --cov=guardian`
+- [x] Workstream 3: IDE & Developer Experience
+  - Commits: 95e7d79
+  - Verification: Manual check.
+- [x] Workstream 4: Advanced Correctness & LLM Robustness
+  - Commits: f6e4a2b (local)
+  - Verification: `pytest tests/test_analyze_robust.py tests/test_chronicle_robust.py`
+  - Improvements: Atomic writes; robust JSON/regex parsing; `dateutil` integration.

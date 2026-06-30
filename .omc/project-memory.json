@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1779658262169,
+  "lastScanned": 1780946121521,
   "projectRoot": "D:\\_projects\\NorthStarGuardian",
   "techStack": {
     "languages": [
@@ -44,17 +44,22 @@
       "examples",
       "tests"
     ],
-    "gitBranches": null
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
   },
   "customNotes": [],
   "directoryMap": {
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 2,
-      "lastAccessed": 1779658262157,
+      "fileCount": 4,
+      "lastAccessed": 1780946121502,
       "keyFiles": [
         "ADDENDUM.md",
+        "New",
+        "northstar.md",
         "SPEC.md"
       ]
     },
@@ -62,32 +67,32 @@
       "path": "examples",
       "purpose": "Example code",
       "fileCount": 4,
-      "lastAccessed": 1779658262157,
+      "lastAccessed": 1780946121502,
       "keyFiles": [
         "consumer-workflow.yml",
-        "sample-constitution.md",
         "sample-dashboard.html",
-        "sample-journal-entry.md"
+        "sample-journal-entry.md",
+        "sample-northstar.md"
       ]
     },
     "guardian": {
       "path": "guardian",
       "purpose": null,
-      "fileCount": 10,
-      "lastAccessed": 1779658262158,
+      "fileCount": 11,
+      "lastAccessed": 1780946121502,
       "keyFiles": [
         "analyze.py",
         "chronicle.py",
         "cli.py",
-        "constitution.py",
-        "dashboard.py"
+        "dashboard.py",
+        "github_io.py"
       ]
     },
     "northstar_guardian.egg-info": {
       "path": "northstar_guardian.egg-info",
       "purpose": null,
       "fileCount": 6,
-      "lastAccessed": 1779658262158,
+      "lastAccessed": 1780946121503,
       "keyFiles": [
         "dependency_links.txt",
         "entry_points.txt",
@@ -96,91 +101,44 @@
         "SOURCES.txt"
       ]
     },
+    "talk": {
+      "path": "talk",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1780946121503,
+      "keyFiles": []
+    },
     "tests": {
       "path": "tests",
       "purpose": "Test files",
-      "fileCount": 12,
-      "lastAccessed": 1779658262158,
+      "fileCount": 15,
+      "lastAccessed": 1780946121504,
       "keyFiles": [
         "conftest.py",
         "test_analyze.py",
         "test_chronicle.py",
         "test_cli.py",
-        "test_constitution.py"
+        "test_config.py"
       ]
     }
   },
   "hotPaths": [
     {
-      "path": "C:\\Users\\pmacl\\.claude\\projects\\D---projects-NorthStarGuardian\\memory\\project_threat_model.md",
+      "path": "C:\\Users\\pmacl\\AppData\\Local\\Temp\\claude\\D---projects-NorthStarGuardian\\3a5ca11a-1f43-4765-845b-84be9c8c3fa0\\tasks\\bg9e3nit0.output",
       "accessCount": 2,
-      "lastAccessed": 1779659043228,
+      "lastAccessed": 1779833096681,
       "type": "file"
     },
     {
-      "path": "C:\\Users\\pmacl\\.claude\\projects\\D---projects-NorthStarGuardian\\memory\\MEMORY.md",
-      "accessCount": 2,
-      "lastAccessed": 1779659046164,
-      "type": "file"
-    },
-    {
-      "path": "docs\\ADDENDUM.md",
+      "path": "C:\\Users\\pmacl\\.claude\\plugins\\cache\\omc\\oh-my-claudecode\\4.14.0\\skill-bodies\\ultrawork\\SKILL.md",
       "accessCount": 1,
-      "lastAccessed": 1779658392688,
+      "lastAccessed": 1779828361774,
       "type": "file"
     },
     {
-      "path": "README.md",
+      "path": "C:\\Users\\pmacl\\AppData\\Local\\Temp\\claude\\D---projects-NorthStarGuardian\\3a5ca11a-1f43-4765-845b-84be9c8c3fa0\\tasks\\bepit2ndo.output",
       "accessCount": 1,
-      "lastAccessed": 1779658392729,
-      "type": "file"
-    },
-    {
-      "path": "docs\\SPEC.md",
-      "accessCount": 1,
-      "lastAccessed": 1779658392844,
-      "type": "file"
-    },
-    {
-      "path": "guardian\\templates\\prompts\\assess_intent.md.j2",
-      "accessCount": 1,
-      "lastAccessed": 1779658854117,
-      "type": "file"
-    },
-    {
-      "path": "guardian\\templates\\prompts\\evaluate_alignment.md.j2",
-      "accessCount": 1,
-      "lastAccessed": 1779658854675,
-      "type": "file"
-    },
-    {
-      "path": "guardian\\templates\\prompts\\detect_anti_patterns.md.j2",
-      "accessCount": 1,
-      "lastAccessed": 1779658855230,
-      "type": "file"
-    },
-    {
-      "path": "guardian\\templates\\prompts\\assign_saga.md.j2",
-      "accessCount": 1,
-      "lastAccessed": 1779658856234,
-      "type": "file"
-    },
-    {
-      "path": "guardian\\templates\\constitution.md.j2",
-      "accessCount": 1,
-      "lastAccessed": 1779658856813,
-      "type": "file"
-    },
-    {
-      "path": "guardian\\analyze.py",
-      "accessCount": 1,
-      "lastAccessed": 1779658857319,
-      "type": "file"
-    },
-    {
-      "path": "guardian\\cli.py",
-      "accessCount": 1,
-      "lastAccessed": 1779658857859,
+      "lastAccessed": 1779833709631,
       "type": "file"
     }
   ],

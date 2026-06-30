@@ -1,0 +1,13 @@
+{
+  "lastAgent": "agent-2a50ea69-c645-4868-9ccb-9f18efb071b0",
+  "sessionsByServer": {
+    "api.letta.com": {
+      "agentId": "agent-2a50ea69-c645-4868-9ccb-9f18efb071b0",
+      "conversationId": "default"
+    }
+  },
+  "lastSession": {
+    "agentId": "agent-2a50ea69-c645-4868-9ccb-9f18efb071b0",
+    "conversationId": "default"
+  }
+}
