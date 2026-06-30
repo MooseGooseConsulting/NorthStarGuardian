@@ -323,9 +323,7 @@ def evaluate_alignment(
 
     data = _parse_json_response(raw, "evaluate_alignment")
     if not isinstance(data, list):
-        raise LLMOutputError(
-            f"evaluate_alignment expected a JSON array, got {type(data).__name__}"
-        )
+        raise LLMOutputError(f"evaluate_alignment expected a JSON array, got {type(data).__name__}")
 
     evaluations: list[PrincipleEvaluation] = []
     principle_ids = {p.id for p in north_star.principles}
@@ -347,8 +345,7 @@ def evaluate_alignment(
                 verdict = Verdict(verdict_raw)
             except ValueError as exc:
                 raise LLMOutputError(
-                    f"evaluate_alignment: invalid verdict '{verdict_raw}' "
-                    f"for principle '{pid}'"
+                    f"evaluate_alignment: invalid verdict '{verdict_raw}' for principle '{pid}'"
                 ) from exc
 
         evaluations.append(
@@ -513,9 +510,7 @@ def assess_intent(
 
     data = _parse_json_response(raw, "assess_intent")
     if not isinstance(data, dict):
-        raise LLMOutputError(
-            f"assess_intent expected a JSON object, got {type(data).__name__}"
-        )
+        raise LLMOutputError(f"assess_intent expected a JSON object, got {type(data).__name__}")
 
     one_line = str(data.get("one_line", ""))
     paragraph = str(data.get("paragraph", ""))
@@ -564,9 +559,7 @@ def assess_intent_with_north_star(
 
     data = _parse_json_response(raw, "assess_intent")
     if not isinstance(data, dict):
-        raise LLMOutputError(
-            f"assess_intent expected a JSON object, got {type(data).__name__}"
-        )
+        raise LLMOutputError(f"assess_intent expected a JSON object, got {type(data).__name__}")
 
     one_line = str(data.get("one_line", ""))
     paragraph = str(data.get("paragraph", ""))
@@ -621,7 +614,7 @@ def _parse_variance_tags(text: str) -> list[VarianceTag]:
         # Build justification: strip principle id from front, strip days clause
         justification = body
         if princ_match:
-            justification = re.sub(r"^[\s\u2014\u2013:-]+", "", body[princ_match.end():]).strip()
+            justification = re.sub(r"^[\s\u2014\u2013:-]+", "", body[princ_match.end() :]).strip()
         if days_match:
             # Remove the "N days" fragment from the justification
             justification = justification[: days_match.start()].rstrip(" ,;").strip()
@@ -761,8 +754,7 @@ def _draft_chronicle(
     """Ask the LLM to write a single chronicle paragraph for the PR."""
     relevant = [e for e in evaluations if e.relevant]
     eval_summary = "\n".join(
-        f"- [{e.principle_id}] {e.verdict}: {e.reasoning or ''}"
-        for e in relevant
+        f"- [{e.principle_id}] {e.verdict}: {e.reasoning or ''}" for e in relevant
     )
 
     system = (

@@ -259,8 +259,7 @@ class TestParseVarianceTags:
 
     def test_multiple_variances(self) -> None:
         text = (
-            "[VARIANCE: P1 — experiment, 3 days] and "
-            "[VARIANCE: P2 — legacy path needed, 14 days]"
+            "[VARIANCE: P1 — experiment, 3 days] and [VARIANCE: P2 — legacy path needed, 14 days]"
         )
         tags = _parse_variance_tags(text)
         assert len(tags) == 2
@@ -290,29 +289,31 @@ class TestParseVarianceTags:
 
 class TestEvaluateAlignment:
     def _valid_response(self, north_star: NorthStar) -> str:
-        return json.dumps([
-            {
-                "principle_id": "P1",
-                "relevant": True,
-                "verdict": "aligned",
-                "reasoning": "The change flows through AnalysisAgent.",
-                "citations": ["src/main.py:5"],
-            },
-            {
-                "principle_id": "P2",
-                "relevant": False,
-                "verdict": None,
-                "reasoning": None,
-                "citations": [],
-            },
-            {
-                "principle_id": "P3",
-                "relevant": False,
-                "verdict": None,
-                "reasoning": None,
-                "citations": [],
-            },
-        ])
+        return json.dumps(
+            [
+                {
+                    "principle_id": "P1",
+                    "relevant": True,
+                    "verdict": "aligned",
+                    "reasoning": "The change flows through AnalysisAgent.",
+                    "citations": ["src/main.py:5"],
+                },
+                {
+                    "principle_id": "P2",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+                {
+                    "principle_id": "P3",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+            ]
+        )
 
     def test_returns_one_entry_per_principle(
         self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
@@ -378,14 +379,31 @@ class TestEvaluateAlignment:
         self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        bad_response = json.dumps([
-            {"principle_id": "P1", "relevant": True, "verdict": "UNKNOWN_VALUE",
-             "reasoning": "...", "citations": []},
-            {"principle_id": "P2", "relevant": False, "verdict": None,
-             "reasoning": None, "citations": []},
-            {"principle_id": "P3", "relevant": False, "verdict": None,
-             "reasoning": None, "citations": []},
-        ])
+        bad_response = json.dumps(
+            [
+                {
+                    "principle_id": "P1",
+                    "relevant": True,
+                    "verdict": "UNKNOWN_VALUE",
+                    "reasoning": "...",
+                    "citations": [],
+                },
+                {
+                    "principle_id": "P2",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+                {
+                    "principle_id": "P3",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+            ]
+        )
         client = _make_client(bad_response)
         with pytest.raises(LLMOutputError):
             evaluate_alignment(diff, north_star, client=client, model="test")
@@ -396,10 +414,17 @@ class TestEvaluateAlignment:
         """If the LLM omits a principle, evaluate_alignment fills in a default."""
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         # Only P1 returned — P2 and P3 are missing
-        partial = json.dumps([
-            {"principle_id": "P1", "relevant": True, "verdict": "aligned",
-             "reasoning": "ok", "citations": []},
-        ])
+        partial = json.dumps(
+            [
+                {
+                    "principle_id": "P1",
+                    "relevant": True,
+                    "verdict": "aligned",
+                    "reasoning": "ok",
+                    "citations": [],
+                },
+            ]
+        )
         client = _make_client(partial)
         result = evaluate_alignment(diff, north_star, client=client, model="test")
         assert len(result) == 3
@@ -420,14 +445,31 @@ class TestEvaluateAlignment:
         self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        response = json.dumps([
-            {"principle_id": "P1", "relevant": True, "verdict": "drift",
-             "reasoning": "Bypasses LLM layer.", "citations": ["src/main.py:3"]},
-            {"principle_id": "P2", "relevant": False, "verdict": None,
-             "reasoning": None, "citations": []},
-            {"principle_id": "P3", "relevant": False, "verdict": None,
-             "reasoning": None, "citations": []},
-        ])
+        response = json.dumps(
+            [
+                {
+                    "principle_id": "P1",
+                    "relevant": True,
+                    "verdict": "drift",
+                    "reasoning": "Bypasses LLM layer.",
+                    "citations": ["src/main.py:3"],
+                },
+                {
+                    "principle_id": "P2",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+                {
+                    "principle_id": "P3",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+            ]
+        )
         client = _make_client(response)
         result = evaluate_alignment(diff, north_star, client=client, model="test")
         p1 = next(e for e in result if e.principle_id == "P1")
@@ -440,9 +482,7 @@ class TestEvaluateAlignment:
 
 
 class TestDetectAntiPatterns:
-    def test_empty_when_no_anti_patterns(
-        self, simple_pr_meta: dict[str, Any]
-    ) -> None:
+    def test_empty_when_no_anti_patterns(self, simple_pr_meta: dict[str, Any]) -> None:
         empty_north_star = NorthStar(
             version=1,
             project_name="Empty",
@@ -458,14 +498,17 @@ class TestDetectAntiPatterns:
         assert result == []
         client.chat.completions.create.assert_not_called()
 
-    def test_returns_matches(
-        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
-    ) -> None:
+    def test_returns_matches(self, north_star: NorthStar, simple_pr_meta: dict[str, Any]) -> None:
         diff = analyze_diff(MULTI_FILE_DIFF, simple_pr_meta)
-        response = json.dumps([
-            {"pattern_id": "AP2", "location": "src/main.py:2",
-             "explanation": "Direct whisper import detected."},
-        ])
+        response = json.dumps(
+            [
+                {
+                    "pattern_id": "AP2",
+                    "location": "src/main.py:2",
+                    "explanation": "Direct whisper import detected.",
+                },
+            ]
+        )
         client = _make_client(response)
         result = detect_anti_patterns(diff, north_star, client=client, model="test")
         assert len(result) == 1
@@ -503,10 +546,11 @@ class TestDetectAntiPatterns:
         self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        response = json.dumps([
-            {"pattern_id": "AP_INVENTED", "location": "foo.py:1",
-             "explanation": "Made up."},
-        ])
+        response = json.dumps(
+            [
+                {"pattern_id": "AP_INVENTED", "location": "foo.py:1", "explanation": "Made up."},
+            ]
+        )
         client = _make_client(response)
         result = detect_anti_patterns(diff, north_star, client=client, model="test")
         assert result == []
@@ -519,14 +563,16 @@ class TestDetectAntiPatterns:
 
 class TestAssessIntent:
     def _valid_response(self) -> str:
-        return json.dumps({
-            "one_line": "Added a new analysis pipeline step.",
-            "paragraph": (
-                "The developer added a new analysis step that routes through "
-                "AnalysisAgent. This extends the existing analysis infrastructure "
-                "and aligns with the declared architecture. The change is self-contained."
-            ),
-        })
+        return json.dumps(
+            {
+                "one_line": "Added a new analysis pipeline step.",
+                "paragraph": (
+                    "The developer added a new analysis step that routes through "
+                    "AnalysisAgent. This extends the existing analysis infrastructure "
+                    "and aligns with the declared architecture. The change is self-contained."
+                ),
+            }
+        )
 
     def test_returns_intent_summary(self, simple_pr_meta: dict[str, Any]) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
@@ -547,33 +593,25 @@ class TestAssessIntent:
         assert result.declared_variances[0].principle_id == "P3"
         assert result.declared_variances[0].expires_in_days == 5
 
-    def test_no_variance_tags_gives_empty_list(
-        self, simple_pr_meta: dict[str, Any]
-    ) -> None:
+    def test_no_variance_tags_gives_empty_list(self, simple_pr_meta: dict[str, Any]) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client(self._valid_response())
         result = assess_intent(simple_pr_meta, diff, client=client, model="test")
         assert result.declared_variances == []
 
-    def test_malformed_json_raises_llm_output_error(
-        self, simple_pr_meta: dict[str, Any]
-    ) -> None:
+    def test_malformed_json_raises_llm_output_error(self, simple_pr_meta: dict[str, Any]) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client("{{broken")
         with pytest.raises(LLMOutputError):
             assess_intent(simple_pr_meta, diff, client=client, model="test")
 
-    def test_wrong_type_raises_llm_output_error(
-        self, simple_pr_meta: dict[str, Any]
-    ) -> None:
+    def test_wrong_type_raises_llm_output_error(self, simple_pr_meta: dict[str, Any]) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client("[1, 2, 3]")
         with pytest.raises(LLMOutputError):
             assess_intent(simple_pr_meta, diff, client=client, model="test")
 
-    def test_empty_one_line_raises_llm_output_error(
-        self, simple_pr_meta: dict[str, Any]
-    ) -> None:
+    def test_empty_one_line_raises_llm_output_error(self, simple_pr_meta: dict[str, Any]) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client(json.dumps({"one_line": "", "paragraph": "Some text."}))
         with pytest.raises(LLMOutputError):
@@ -588,20 +626,41 @@ class TestAssessIntent:
 class TestRunInterview:
     def _make_all_mock_client(self, north_star: NorthStar) -> MagicMock:
         """Return a client that returns sensible JSON for each call in order."""
-        intent_resp = json.dumps({
-            "one_line": "Added analysis step.",
-            "paragraph": "Developer added a step through AnalysisAgent.",
-        })
-        alignment_resp = json.dumps([
-            {"principle_id": "P1", "relevant": True, "verdict": "aligned",
-             "reasoning": "Routes through AnalysisAgent.", "citations": []},
-            {"principle_id": "P2", "relevant": False, "verdict": None,
-             "reasoning": None, "citations": []},
-            {"principle_id": "P3", "relevant": False, "verdict": None,
-             "reasoning": None, "citations": []},
-        ])
+        intent_resp = json.dumps(
+            {
+                "one_line": "Added analysis step.",
+                "paragraph": "Developer added a step through AnalysisAgent.",
+            }
+        )
+        alignment_resp = json.dumps(
+            [
+                {
+                    "principle_id": "P1",
+                    "relevant": True,
+                    "verdict": "aligned",
+                    "reasoning": "Routes through AnalysisAgent.",
+                    "citations": [],
+                },
+                {
+                    "principle_id": "P2",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+                {
+                    "principle_id": "P3",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+            ]
+        )
         ap_resp = "[]"
-        chronicle_resp = "PR #42 added a new analysis step. It aligns with the declared architecture."
+        chronicle_resp = (
+            "PR #42 added a new analysis step. It aligns with the declared architecture."
+        )
 
         client = MagicMock()
         responses = []
@@ -622,8 +681,9 @@ class TestRunInterview:
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = self._make_all_mock_client(north_star)
-        report = run_interview(diff, north_star, client=client, model="test",
-                               pr_meta=simple_pr_meta)
+        report = run_interview(
+            diff, north_star, client=client, model="test", pr_meta=simple_pr_meta
+        )
         assert report.pr_number == 42
         assert report.overall_verdict == Verdict.ALIGNED
         assert report.alignment_summary == "Added analysis step."
@@ -634,18 +694,37 @@ class TestRunInterview:
         self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        intent_resp = json.dumps({
-            "one_line": "Added whisper directly.",
-            "paragraph": "Developer imported whisper without going through ColdVox.",
-        })
-        alignment_resp = json.dumps([
-            {"principle_id": "P1", "relevant": True, "verdict": "aligned",
-             "reasoning": "ok", "citations": []},
-            {"principle_id": "P2", "relevant": True, "verdict": "drift",
-             "reasoning": "Bypasses ColdVox.", "citations": ["src/main.py:2"]},
-            {"principle_id": "P3", "relevant": False, "verdict": None,
-             "reasoning": None, "citations": []},
-        ])
+        intent_resp = json.dumps(
+            {
+                "one_line": "Added whisper directly.",
+                "paragraph": "Developer imported whisper without going through ColdVox.",
+            }
+        )
+        alignment_resp = json.dumps(
+            [
+                {
+                    "principle_id": "P1",
+                    "relevant": True,
+                    "verdict": "aligned",
+                    "reasoning": "ok",
+                    "citations": [],
+                },
+                {
+                    "principle_id": "P2",
+                    "relevant": True,
+                    "verdict": "drift",
+                    "reasoning": "Bypasses ColdVox.",
+                    "citations": ["src/main.py:2"],
+                },
+                {
+                    "principle_id": "P3",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+            ]
+        )
         ap_resp = "[]"
         chronicle_resp = "Drift detected."
 
@@ -669,14 +748,31 @@ class TestRunInterview:
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         intent_resp = json.dumps({"one_line": "Cache layer added.", "paragraph": "..."})
-        alignment_resp = json.dumps([
-            {"principle_id": "P1", "relevant": False, "verdict": None,
-             "reasoning": None, "citations": []},
-            {"principle_id": "P2", "relevant": False, "verdict": None,
-             "reasoning": None, "citations": []},
-            {"principle_id": "P3", "relevant": True, "verdict": "ambiguous",
-             "reasoning": "Could be local or remote.", "citations": []},
-        ])
+        alignment_resp = json.dumps(
+            [
+                {
+                    "principle_id": "P1",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+                {
+                    "principle_id": "P2",
+                    "relevant": False,
+                    "verdict": None,
+                    "reasoning": None,
+                    "citations": [],
+                },
+                {
+                    "principle_id": "P3",
+                    "relevant": True,
+                    "verdict": "ambiguous",
+                    "reasoning": "Could be local or remote.",
+                    "citations": [],
+                },
+            ]
+        )
         ap_resp = "[]"
         chronicle_resp = "Ambiguous caching layer added."
 
@@ -700,7 +796,6 @@ class TestRunInterview:
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = self._make_all_mock_client(north_star)
-        run_interview(diff, north_star, client=client, model="test",
-                      pr_meta=simple_pr_meta)
+        run_interview(diff, north_star, client=client, model="test", pr_meta=simple_pr_meta)
         # 1 assess_intent + 1 evaluate_alignment + 1 detect_anti_patterns + 1 chronicle
         assert client.chat.completions.create.call_count == 4

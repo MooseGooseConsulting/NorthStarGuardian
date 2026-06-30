@@ -407,9 +407,7 @@ def escalate_debt_result(
         ``BLOCKING`` **and** ``config.enable_blocking_escalation`` is ``True``.
     """
     timer = escalate_debt(store, debt_id, new_level=new_level, config=config)
-    blocks_pr = (
-        new_level == DebtLevel.BLOCKING and config.enable_blocking_escalation
-    )
+    blocks_pr = new_level == DebtLevel.BLOCKING and config.enable_blocking_escalation
     return timer, blocks_pr
 
 

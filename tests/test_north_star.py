@@ -54,6 +54,7 @@ def _sample_north_star() -> NorthStar:
 # Markdown round-trip
 # ---------------------------------------------------------------------------
 
+
 class TestMarkdownRoundTrip:
     def test_render_and_parse_identity(self) -> None:
         c = _sample_north_star()
@@ -124,6 +125,7 @@ class TestMarkdownRoundTrip:
 # Read / write via FakeStore
 # ---------------------------------------------------------------------------
 
+
 class TestReadWrite:
     def test_write_and_read_north_star(self, fake_store: FakeStore) -> None:
         c = _sample_north_star()
@@ -145,6 +147,7 @@ class TestReadWrite:
 # ---------------------------------------------------------------------------
 # amend_north_star
 # ---------------------------------------------------------------------------
+
 
 class TestAmendNorthStar:
     def _store_with_north_star(self, fake_store: FakeStore) -> FakeStore:
@@ -279,6 +282,7 @@ class TestAmendNorthStar:
 # append_amendment / amendment log
 # ---------------------------------------------------------------------------
 
+
 class TestAmendmentLog:
     def _make_amendment(self) -> Amendment:
         return Amendment(
@@ -326,6 +330,7 @@ class TestAmendmentLog:
 # ---------------------------------------------------------------------------
 # initialize_north_star
 # ---------------------------------------------------------------------------
+
 
 class TestInitializeNorthStar:
     def _answers(self) -> dict:

@@ -120,9 +120,7 @@ class LinearClient:
         updated_by_name = None
         if isinstance(updated_by, dict):
             updated_by_name = (
-                updated_by.get("displayName")
-                or updated_by.get("name")
-                or updated_by.get("id")
+                updated_by.get("displayName") or updated_by.get("name") or updated_by.get("id")
             )
 
         return LinearDocumentSnapshot(

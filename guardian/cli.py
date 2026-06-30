@@ -61,7 +61,7 @@ def _load_review_north_star(
     _GUARDIAN_PREFIX = ".github/guardian/"
     _active = config.north_star.active_copy_path or ".github/guardian/northstar.md"
     northstar_path = (
-        _active[len(_GUARDIAN_PREFIX):]
+        _active[len(_GUARDIAN_PREFIX) :]
         if _active.startswith(_GUARDIAN_PREFIX)
         else Path(_active).name
     )
@@ -76,9 +76,7 @@ def _load_review_north_star(
             )
         api_key = environ.get("LINEAR_API_KEY")
         if not api_key:
-            raise click.ClickException(
-                "LINEAR_API_KEY environment variable is not set."
-            )
+            raise click.ClickException("LINEAR_API_KEY environment variable is not set.")
 
         snapshot = LinearClient(api_key).fetch_document(config.linear.document_id)
         store.write(northstar_path, snapshot.content)
@@ -147,9 +145,7 @@ def _make_openai_client() -> OpenAI:
     """Construct an OpenAI client from the environment."""
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise click.ClickException(
-            "OPENAI_API_KEY environment variable is not set."
-        )
+        raise click.ClickException("OPENAI_API_KEY environment variable is not set.")
     return OpenAI(api_key=api_key)
 
 
@@ -258,6 +254,7 @@ def _format_report_comment(report: Any, config: GuardianConfig) -> str:
 # CLI root
 # ---------------------------------------------------------------------------
 
+
 @click.group()
 def cli() -> None:
     """NorthStarGuardian — advisory PR governance agent."""
@@ -266,6 +263,7 @@ def cli() -> None:
 # ---------------------------------------------------------------------------
 # guardian interview
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.option(
@@ -321,10 +319,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     # _load_saga_index and _saga_from_index_entry are module-internal helpers;
     # accessing them is acceptable here since cli.py is a first-party sibling.
     saga_index = chronicle._load_saga_index(store)
-    all_sagas = [
-        chronicle._saga_from_index_entry(entry)
-        for entry in saga_index.get("sagas", [])
-    ]
+    all_sagas = [chronicle._saga_from_index_entry(entry) for entry in saga_index.get("sagas", [])]
     saga = chronicle.assign_saga(
         store,
         report.intent,
@@ -343,9 +338,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
 
     # 8. Flush repo-native Guardian state.
     pr_num = ctx.pr.number
-    with store.session(
-        f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"
-    ):
+    with store.session(f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"):
         pass  # session commits whatever was staged by the above calls
 
     # 9. Post report as a PR comment.
@@ -358,6 +351,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
 # ---------------------------------------------------------------------------
 # guardian command  (slash-command dispatcher)
 # ---------------------------------------------------------------------------
+
 
 @cli.command(name="command")
 @click.option(
@@ -420,6 +414,7 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
 # Slash-command handlers
 # ---------------------------------------------------------------------------
 
+
 def _handle_init_guardian(
     ctx: GitHubContext,
     store: MemoryStore,
@@ -452,9 +447,7 @@ def _handle_re_anchor(
     """Handle /re-anchor — show current North Star summary and instructions."""
     try:
         north_star = read_north_star(store)
-        principles_text = "\n".join(
-            f"{p.rank}. {p.text}" for p in north_star.principles
-        )
+        principles_text = "\n".join(f"{p.rank}. {p.text}" for p in north_star.principles)
         reply = (
             f"## Guardian Re-Anchor\n\n"
             f"**Current identity:** {north_star.identity_statement}\n\n"
@@ -483,8 +476,8 @@ def _handle_amend(
     """Handle /amend <principle-id> "new text" — amend a specific principle."""
     if len(args) < 2:
         reply = (
-            "Usage: `/amend <principle-id> \"new text\"`\n\n"
-            "Example: `/amend p1 \"All data flows through the LLM layer\"`"
+            'Usage: `/amend <principle-id> "new text"`\n\n'
+            'Example: `/amend p1 "All data flows through the LLM layer"`'
         )
         if ctx.pr:
             post_pr_comment(ctx, reply)
@@ -657,6 +650,7 @@ def _handle_status(
 # guardian sweep-debt
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.option(
     "--repo-root",
@@ -690,9 +684,7 @@ def sweep_debt(repo_root: str | None) -> None:
     config = _load_config(store)
 
     for debt in approaching:
-        governance.escalate_debt(
-            store, debt.id, new_level=DebtLevel.REMINDER_75, config=config
-        )
+        governance.escalate_debt(store, debt.id, new_level=DebtLevel.REMINDER_75, config=config)
         click.echo(f"  Reminded (75%) debt {debt.id} (PR #{debt.pr_number}, {debt.principle_id})")
 
     for debt in expired:
@@ -732,6 +724,7 @@ def sweep_debt(repo_root: str | None) -> None:
 # ---------------------------------------------------------------------------
 # guardian init-local
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.option(
@@ -788,7 +781,9 @@ def init_local(repo_root: str) -> None:
     raw_anti_patterns: list[str] = []
     while True:
         n = len(raw_anti_patterns) + 1
-        value = click.prompt(f"Anti-pattern {n} (or Enter to finish)", default="", show_default=False)
+        value = click.prompt(
+            f"Anti-pattern {n} (or Enter to finish)", default="", show_default=False
+        )
         if not value:
             break
         raw_anti_patterns.append(value)
@@ -826,6 +821,7 @@ def init_local(repo_root: str) -> None:
 # ---------------------------------------------------------------------------
 # guardian preview-dashboard
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.option(
@@ -866,6 +862,7 @@ def preview_dashboard(output: str, repo_root: str) -> None:
 # ---------------------------------------------------------------------------
 # guardian chronograph-* local stewardship pipeline
 # ---------------------------------------------------------------------------
+
 
 @cli.command(name="chronograph-recommend-actions")
 @click.option(
@@ -959,6 +956,7 @@ def chronograph_apply(repo_root: str) -> None:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     """Package entry point wired in pyproject.toml."""

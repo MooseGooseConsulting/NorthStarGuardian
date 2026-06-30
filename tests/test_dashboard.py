@@ -243,6 +243,7 @@ class TestGenerateQuadrant:
         result = generate_quadrant(journal=journal)
         # Each data point line looks like "    PR#N: [X, Y]"
         import re
+
         matches = re.findall(r"\[([0-9.]+),\s*([0-9.]+)\]", result)
         for x_str, y_str in matches:
             x, y = float(x_str), float(y_str)
@@ -464,10 +465,9 @@ class TestRenderDashboard:
         north_star = _make_north_star()
         html = render_dashboard(store, north_star)
         import re
+
         # Find all src= and href= attributes
         src_refs = re.findall(r'(?:src|href)=["\']([^"\']+)["\']', html)
         for ref in src_refs:
             if ref.startswith("http"):
-                assert "jsdelivr.net" in ref, (
-                    f"Unexpected external asset: {ref!r}"
-                )
+                assert "jsdelivr.net" in ref, f"Unexpected external asset: {ref!r}"

@@ -124,10 +124,12 @@ class TestLogDrift:
         assert ledger[0]["pr_number"] == 10
 
     def test_appends_multiple_events(self, store: _FakeStore) -> None:
-        log_drift(store, pr_number=1, principle_id="P1",
-                  severity=DriftSeverity.LOW, details="First")
-        log_drift(store, pr_number=2, principle_id="P2",
-                  severity=DriftSeverity.HIGH, details="Second")
+        log_drift(
+            store, pr_number=1, principle_id="P1", severity=DriftSeverity.LOW, details="First"
+        )
+        log_drift(
+            store, pr_number=2, principle_id="P2", severity=DriftSeverity.HIGH, details="Second"
+        )
         ledger = store.read_json("memory/drift-ledger.json")
         assert len(ledger) == 2
 
@@ -142,15 +144,23 @@ class TestLogDrift:
         assert event.severity == DriftSeverity.LOW
 
     def test_event_has_unique_ids(self, store: _FakeStore) -> None:
-        e1 = log_drift(store, pr_number=1, principle_id="P1",
-                       severity=DriftSeverity.LOW, details="A")
-        e2 = log_drift(store, pr_number=2, principle_id="P2",
-                       severity=DriftSeverity.LOW, details="B")
+        e1 = log_drift(
+            store, pr_number=1, principle_id="P1", severity=DriftSeverity.LOW, details="A"
+        )
+        e2 = log_drift(
+            store, pr_number=2, principle_id="P2", severity=DriftSeverity.LOW, details="B"
+        )
         assert e1.id != e2.id
 
     def test_timestamp_stored_as_iso(self, store: _FakeStore) -> None:
-        log_drift(store, pr_number=1, principle_id="P1",
-                  severity=DriftSeverity.LOW, details="ts test", now=_fixed_now())
+        log_drift(
+            store,
+            pr_number=1,
+            principle_id="P1",
+            severity=DriftSeverity.LOW,
+            details="ts test",
+            now=_fixed_now(),
+        )
         ledger = store.read_json("memory/drift-ledger.json")
         assert "2026-05-22" in ledger[0]["timestamp"]
 
@@ -169,9 +179,7 @@ class TestGrantVariance:
         assert timer.level == DebtLevel.NEUTRAL
         assert timer.resolved_at is None
 
-    def test_expiry_calculated_from_tag(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> None:
+    def test_expiry_calculated_from_tag(self, store: _FakeStore, config: GuardianConfig) -> None:
         tag = _make_variance_tag(expires_in_days=14)
         now = _fixed_now()
         timer = grant_variance(store, tag, pr_number=1, config=config, now=now)
@@ -204,21 +212,20 @@ class TestGrantVariance:
         timers = store.read_json("memory/debt-timers.json")
         assert len(timers) == 1
 
-    def test_affected_paths_stored(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> None:
+    def test_affected_paths_stored(self, store: _FakeStore, config: GuardianConfig) -> None:
         tag = _make_variance_tag()
         timer = grant_variance(
-            store, tag, pr_number=1, config=config,
+            store,
+            tag,
+            pr_number=1,
+            config=config,
             affected_paths=["src/foo.py", "src/bar.py"],
         )
         assert timer.affected_paths == ["src/foo.py", "src/bar.py"]
         raw = store.read_json("memory/debt-timers.json")
         assert raw[0]["affected_paths"] == ["src/foo.py", "src/bar.py"]
 
-    def test_multiple_timers_append(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> None:
+    def test_multiple_timers_append(self, store: _FakeStore, config: GuardianConfig) -> None:
         tag1 = _make_variance_tag("P1")
         tag2 = _make_variance_tag("P2")
         grant_variance(store, tag1, pr_number=1, config=config)
@@ -260,9 +267,7 @@ class TestCheckDebtTimers:
         assert result["approaching_expiry"] == []
         assert result["expired"] == []
 
-    def test_active_at_50_percent(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> None:
+    def test_active_at_50_percent(self, store: _FakeStore, config: GuardianConfig) -> None:
         # Timer created 10 days ago with a 20-day lifespan (expires in 10 more days)
         # At check time: elapsed = 10/20 = 50% → below the 75% threshold → active
         created = _fixed_now() - timedelta(days=10)
@@ -290,9 +295,7 @@ class TestCheckDebtTimers:
         assert len(result["expired"]) == 1
         assert result["active"] == []
 
-    def test_resolved_timer_excluded(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> None:
+    def test_resolved_timer_excluded(self, store: _FakeStore, config: GuardianConfig) -> None:
         tag = _make_variance_tag(expires_in_days=7)
         timer = grant_variance(store, tag, pr_number=1, config=config, now=_fixed_now())
         resolve_debt(store, timer.id)
@@ -312,13 +315,11 @@ class TestCheckDebtTimers:
 
         # Approaching: 10-day timer, at day 9
         tag_b = _make_variance_tag("P2", expires_in_days=10)
-        grant_variance(store, tag_b, pr_number=2, config=config,
-                       now=now - timedelta(days=9))
+        grant_variance(store, tag_b, pr_number=2, config=config, now=now - timedelta(days=9))
 
         # Expired: 7-day timer created 14 days ago
         tag_c = _make_variance_tag("P3", expires_in_days=7)
-        grant_variance(store, tag_c, pr_number=3, config=config,
-                       now=now - timedelta(days=14))
+        grant_variance(store, tag_c, pr_number=3, config=config, now=now - timedelta(days=14))
 
         result = check_debt_timers(store, now=now)
         assert len(result["active"]) == 1
@@ -332,23 +333,17 @@ class TestCheckDebtTimers:
 
 
 class TestEscalateDebt:
-    def _create_timer_and_get_id(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> str:
+    def _create_timer_and_get_id(self, store: _FakeStore, config: GuardianConfig) -> str:
         tag = _make_variance_tag()
         timer = grant_variance(store, tag, pr_number=1, config=config, now=_fixed_now())
         return timer.id
 
     def test_bumps_level(self, store: _FakeStore, config: GuardianConfig) -> None:
         debt_id = self._create_timer_and_get_id(store, config)
-        updated = escalate_debt(
-            store, debt_id, new_level=DebtLevel.REMINDER_75, config=config
-        )
+        updated = escalate_debt(store, debt_id, new_level=DebtLevel.REMINDER_75, config=config)
         assert updated.level == DebtLevel.REMINDER_75
 
-    def test_persists_level_change(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> None:
+    def test_persists_level_change(self, store: _FakeStore, config: GuardianConfig) -> None:
         debt_id = self._create_timer_and_get_id(store, config)
         escalate_debt(store, debt_id, new_level=DebtLevel.REMINDER_EXPIRED, config=config)
         timers = store.read_json("memory/debt-timers.json")
@@ -360,23 +355,16 @@ class TestEscalateDebt:
     ) -> None:
         """BLOCKING level is always recorded in the model regardless of the flag."""
         debt_id = self._create_timer_and_get_id(store, config)
-        updated = escalate_debt(
-            store, debt_id, new_level=DebtLevel.BLOCKING, config=config
-        )
+        updated = escalate_debt(store, debt_id, new_level=DebtLevel.BLOCKING, config=config)
         assert updated.level == DebtLevel.BLOCKING
 
-    def test_unknown_id_raises_key_error(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> None:
+    def test_unknown_id_raises_key_error(self, store: _FakeStore, config: GuardianConfig) -> None:
         with pytest.raises(KeyError):
-            escalate_debt(store, "nonexistent-id", new_level=DebtLevel.REMINDER_75,
-                          config=config)
+            escalate_debt(store, "nonexistent-id", new_level=DebtLevel.REMINDER_75, config=config)
 
 
 class TestEscalateDebtResult:
-    def _create_timer_and_get_id(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> str:
+    def _create_timer_and_get_id(self, store: _FakeStore, config: GuardianConfig) -> str:
         tag = _make_variance_tag()
         timer = grant_variance(store, tag, pr_number=1, config=config, now=_fixed_now())
         return timer.id
@@ -415,9 +403,7 @@ class TestEscalateDebtResult:
     ) -> None:
         """Even with flag=False, the BLOCKING level is still written to the store."""
         debt_id = self._create_timer_and_get_id(store, config)
-        timer, _ = escalate_debt_result(
-            store, debt_id, new_level=DebtLevel.BLOCKING, config=config
-        )
+        timer, _ = escalate_debt_result(store, debt_id, new_level=DebtLevel.BLOCKING, config=config)
         assert timer.level == DebtLevel.BLOCKING
         raw = store.read_json("memory/debt-timers.json")
         persisted = next(t for t in raw if t["id"] == debt_id)
@@ -430,9 +416,7 @@ class TestEscalateDebtResult:
 
 
 class TestResolveDebt:
-    def _create_timer(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> str:
+    def _create_timer(self, store: _FakeStore, config: GuardianConfig) -> str:
         tag = _make_variance_tag()
         timer = grant_variance(store, tag, pr_number=1, config=config, now=_fixed_now())
         return timer.id
@@ -443,9 +427,7 @@ class TestResolveDebt:
         updated = resolve_debt(store, debt_id, now=resolved_time)
         assert updated.resolved_at == resolved_time
 
-    def test_persists_resolved_at(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> None:
+    def test_persists_resolved_at(self, store: _FakeStore, config: GuardianConfig) -> None:
         debt_id = self._create_timer(store, config)
         resolve_debt(store, debt_id)
         raw = store.read_json("memory/debt-timers.json")
@@ -459,9 +441,7 @@ class TestResolveDebt:
         updated = resolve_debt(store, debt_id, resolved_pr=99)
         assert "PR #99" in updated.justification
 
-    def test_unknown_id_raises_key_error(
-        self, store: _FakeStore, config: GuardianConfig
-    ) -> None:
+    def test_unknown_id_raises_key_error(self, store: _FakeStore, config: GuardianConfig) -> None:
         with pytest.raises(KeyError):
             resolve_debt(store, "nonexistent-id")
 

@@ -37,6 +37,7 @@ class FakeStore:
 
     def __init__(self) -> None:
         self._files: dict[str, str] = {}
+
     # MemoryStore interface
     def read(self, path: str) -> str:
         if path not in self._files:
@@ -276,9 +277,7 @@ class TestAssignSaga:
         # LLM wants to create "The Metrics Saga" again
         client = self._make_client("CREATE: The Metrics Saga")
 
-        result = assign_saga(
-            store, intent, [existing], client=client, model="claude-test"
-        )
+        result = assign_saga(store, intent, [existing], client=client, model="claude-test")
 
         assert result.id != "the-metrics-saga"
         assert result.id.startswith("the-metrics-saga")

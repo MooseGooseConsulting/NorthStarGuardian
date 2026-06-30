@@ -67,20 +67,24 @@ def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> Ma
     `verdict` controls what evaluate_alignment returns for the (one) relevant
     principle: "aligned", "drift", or "ambiguous".
     """
-    intent_json = json.dumps({
-        "one_line": "Refactored the analyze module.",
-        "paragraph": "The PR refactored the analyze module by swapping helpers.",
-    })
-    alignment_json = json.dumps([
+    intent_json = json.dumps(
         {
-            "principle_id": pid,
-            "relevant": (i == 0),
-            "verdict": verdict if i == 0 else None,
-            "reasoning": f"Verdict reasoning for {verdict}." if i == 0 else None,
-            "citations": ["guardian/analyze.py:2"] if i == 0 else [],
+            "one_line": "Refactored the analyze module.",
+            "paragraph": "The PR refactored the analyze module by swapping helpers.",
         }
-        for i, pid in enumerate(principle_ids)
-    ])
+    )
+    alignment_json = json.dumps(
+        [
+            {
+                "principle_id": pid,
+                "relevant": (i == 0),
+                "verdict": verdict if i == 0 else None,
+                "reasoning": f"Verdict reasoning for {verdict}." if i == 0 else None,
+                "citations": ["guardian/analyze.py:2"] if i == 0 else [],
+            }
+            for i, pid in enumerate(principle_ids)
+        ]
+    )
     chronicle_prose = f"PR #42 was assessed as {verdict}."
 
     client = MagicMock()
@@ -136,7 +140,8 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
 
 @pytest.mark.parametrize("verdict", ["aligned", "ambiguous", "drift"])
 def test_full_pr_interview_cycle(
-    repo_and_store: tuple[Path, MemoryStore], verdict: str,
+    repo_and_store: tuple[Path, MemoryStore],
+    verdict: str,
 ) -> None:
     from guardian.north_star import read_north_star
 
@@ -152,7 +157,11 @@ def test_full_pr_interview_cycle(
     client = _build_mock_client(principle_ids, verdict=verdict)
 
     report = run_interview(
-        diff_analysis, north_star, client=client, model="claude-test-mock", pr_meta=PR_META,
+        diff_analysis,
+        north_star,
+        client=client,
+        model="claude-test-mock",
+        pr_meta=PR_META,
     )
     assert report.pr_number == 42
     assert report.overall_verdict.value == verdict
@@ -161,7 +170,11 @@ def test_full_pr_interview_cycle(
     assert client.chat.completions.create.call_count == 4
 
     saga = assign_saga(
-        store, report.intent, existing_sagas=[], client=client, model="claude-test-mock",
+        store,
+        report.intent,
+        existing_sagas=[],
+        client=client,
+        model="claude-test-mock",
     )
     assert client.chat.completions.create.call_count == 5
     assert saga.id

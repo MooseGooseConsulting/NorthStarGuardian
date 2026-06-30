@@ -35,12 +35,14 @@ class FakeLLMClient:
         max_tokens: int = 4096,
     ) -> str:
         self.call_count += 1
-        self.calls.append({
-            "system": system,
-            "user": user,
-            "model": model,
-            "max_tokens": max_tokens,
-        })
+        self.calls.append(
+            {
+                "system": system,
+                "user": user,
+                "model": model,
+                "max_tokens": max_tokens,
+            }
+        )
         if self._queue:
             return self._queue.pop(0)
         raise RuntimeError(
@@ -51,9 +53,7 @@ class FakeLLMClient:
     def assert_call_count(self, expected: int) -> None:
         """Assert that *expected* calls were made."""
         actual = self.call_count
-        assert actual == expected, (
-            f"Expected {expected} LLM calls, got {actual}"
-        )
+        assert actual == expected, f"Expected {expected} LLM calls, got {actual}"
 
 
 class FakeStore:
@@ -81,6 +81,7 @@ class FakeStore:
 
     def read_json(self, path: str) -> Any:
         import json
+
         return json.loads(self.read(path))
 
     def exists(self, path: str) -> bool:
@@ -91,6 +92,7 @@ class FakeStore:
 
     def write_json(self, path: str, obj: Any, message: str = "") -> None:
         import json
+
         self._files[path] = json.dumps(obj, indent=2, default=str)
 
     def list(self, prefix: str = "") -> list[str]:

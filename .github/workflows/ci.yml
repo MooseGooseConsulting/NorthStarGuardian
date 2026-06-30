@@ -31,5 +31,7 @@ jobs:
       - name: Lint
         run: ruff check guardian tests
 
+      - name: Format
+        run: ruff format --check guardian tests
       - name: Test
         run: pytest

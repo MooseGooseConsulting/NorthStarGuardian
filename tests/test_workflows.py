@@ -61,6 +61,7 @@ def test_workflow_parses(filename: str) -> None:
 # Shared structural invariants
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("filename", WORKFLOW_FILES)
 def test_trigger_declared(filename: str) -> None:
     """Every workflow must have a non-empty trigger declaration."""
@@ -92,7 +93,7 @@ def test_each_job_has_runs_on_and_permissions(filename: str) -> None:
         assert "runs-on" in job, f"{filename}/{job_name}: missing 'runs-on'"
 
         has_permissions = (
-            "permissions" in job          # job-level
+            "permissions" in job  # job-level
             or workflow_permissions is not None  # workflow-level
         )
         assert has_permissions, (
@@ -103,6 +104,7 @@ def test_each_job_has_runs_on_and_permissions(filename: str) -> None:
 # ---------------------------------------------------------------------------
 # guardian.yml — specific assertions
 # ---------------------------------------------------------------------------
+
 
 class TestGuardianWorkflow:
     FILENAME = "guardian.yml"
@@ -135,6 +137,7 @@ class TestGuardianWorkflow:
 # guardian-debt.yml — specific assertions
 # ---------------------------------------------------------------------------
 
+
 class TestGuardianDebtWorkflow:
     FILENAME = "guardian-debt.yml"
 
@@ -143,9 +146,7 @@ class TestGuardianDebtWorkflow:
 
     def test_trigger_has_schedule_or_workflow_dispatch(self) -> None:
         trigger = _get_trigger(self._data())
-        assert isinstance(trigger, dict), (
-            "guardian-debt.yml: trigger must be a mapping"
-        )
+        assert isinstance(trigger, dict), "guardian-debt.yml: trigger must be a mapping"
         has_schedule = "schedule" in trigger
         has_dispatch = "workflow_dispatch" in trigger
         assert has_schedule or has_dispatch, (
@@ -160,6 +161,7 @@ class TestGuardianDebtWorkflow:
 # ---------------------------------------------------------------------------
 # ci.yml — specific assertions
 # ---------------------------------------------------------------------------
+
 
 class TestCIWorkflow:
     FILENAME = "ci.yml"
@@ -184,15 +186,11 @@ class TestCIWorkflow:
         assert jobs, "ci.yml: no jobs found"
         job = next(iter(jobs.values()))
         runs = _steps_run_strings(job)
-        assert any(re.search(r"\bpytest\b", r) for r in runs), (
-            "ci.yml: no step runs 'pytest'"
-        )
+        assert any(re.search(r"\bpytest\b", r) for r in runs), "ci.yml: no step runs 'pytest'"
 
     def test_job_steps_run_ruff(self) -> None:
         jobs = self._data().get("jobs", {})
         assert jobs, "ci.yml: no jobs found"
         job = next(iter(jobs.values()))
         runs = _steps_run_strings(job)
-        assert any(re.search(r"\bruff\b", r) for r in runs), (
-            "ci.yml: no step runs 'ruff'"
-        )
+        assert any(re.search(r"\bruff\b", r) for r in runs), "ci.yml: no step runs 'ruff'"

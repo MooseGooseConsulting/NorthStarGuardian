@@ -36,11 +36,14 @@ class TestGitHubContextFromEnv:
         mock_repo.get_pull.return_value = mock_pr
 
         with (
-            patch("guardian.github_io.os.environ", {
-                "GITHUB_TOKEN": "test-token",
-                "GITHUB_REPOSITORY": "test/repo",
-                "GITHUB_EVENT_NAME": "pull_request",
-            }),
+            patch(
+                "guardian.github_io.os.environ",
+                {
+                    "GITHUB_TOKEN": "test-token",
+                    "GITHUB_REPOSITORY": "test/repo",
+                    "GITHUB_EVENT_NAME": "pull_request",
+                },
+            ),
             patch("guardian.github_io.Github") as mock_gh_cls,
         ):
             mock_gh = mock_gh_cls.return_value
@@ -67,11 +70,14 @@ class TestGitHubContextFromEnv:
         mock_repo.get_pull.return_value = mock_pr
 
         with (
-            patch("guardian.github_io.os.environ", {
-                "GITHUB_TOKEN": "test-token",
-                "GITHUB_REPOSITORY": "test/repo",
-                "GITHUB_EVENT_NAME": "issue_comment",
-            }),
+            patch(
+                "guardian.github_io.os.environ",
+                {
+                    "GITHUB_TOKEN": "test-token",
+                    "GITHUB_REPOSITORY": "test/repo",
+                    "GITHUB_EVENT_NAME": "issue_comment",
+                },
+            ),
             patch("guardian.github_io.Github") as mock_gh_cls,
         ):
             mock_gh = mock_gh_cls.return_value
@@ -90,11 +96,14 @@ class TestGitHubContextFromEnv:
         event_file.write_text(json.dumps(payload), encoding="utf-8")
 
         with (
-            patch("guardian.github_io.os.environ", {
-                "GITHUB_TOKEN": "test-token",
-                "GITHUB_REPOSITORY": "test/repo",
-                "GITHUB_EVENT_NAME": "pull_request",
-            }),
+            patch(
+                "guardian.github_io.os.environ",
+                {
+                    "GITHUB_TOKEN": "test-token",
+                    "GITHUB_REPOSITORY": "test/repo",
+                    "GITHUB_EVENT_NAME": "pull_request",
+                },
+            ),
             patch("guardian.github_io.Github"),
         ):
             ctx = GitHubContext.from_env(event_path=str(event_file))

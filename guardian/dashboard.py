@@ -47,6 +47,7 @@ def _jinja_env() -> Environment:
 # Mermaid helpers
 # ---------------------------------------------------------------------------
 
+
 def _mermaid_safe(text: str) -> str:
     """Strip characters that break Mermaid label parsing."""
     # Replace colon (used as separator in many directives) and quotes
@@ -61,6 +62,7 @@ def _today_str() -> str:
 # ---------------------------------------------------------------------------
 # generate_gantt
 # ---------------------------------------------------------------------------
+
 
 def generate_gantt(sagas: list[Saga]) -> str:
     """Return a Mermaid Gantt chart source string for *sagas*.
@@ -112,6 +114,7 @@ def generate_gantt(sagas: list[Saga]) -> str:
 # generate_gitgraph
 # ---------------------------------------------------------------------------
 
+
 def generate_gitgraph(
     drift_events: list[DriftEvent],
     journal: list[JournalEntry],
@@ -145,7 +148,7 @@ def generate_gitgraph(
         is_drift = entry.pr_number in drift_prs
 
         if is_drift and not drift_branch_open:
-            lines.append('   branch drift')
+            lines.append("   branch drift")
             drift_branch_open = True
 
         if is_drift:
@@ -158,15 +161,15 @@ def generate_gitgraph(
             lines.append(f'   commit id: "{label}"{tag_text}')
         else:
             if drift_branch_open:
-                lines.append('   checkout main')
-                lines.append('   merge drift')
+                lines.append("   checkout main")
+                lines.append("   merge drift")
                 drift_branch_open = False
             lines.append(f'   commit id: "{label}"')
 
     # Close any open drift branch
     if drift_branch_open:
-        lines.append('   checkout main')
-        lines.append('   merge drift')
+        lines.append("   checkout main")
+        lines.append("   merge drift")
 
     return "\n".join(lines)
 
@@ -174,6 +177,7 @@ def generate_gitgraph(
 # ---------------------------------------------------------------------------
 # generate_quadrant
 # ---------------------------------------------------------------------------
+
 
 def generate_quadrant(
     journal: list[JournalEntry],
@@ -207,9 +211,9 @@ def generate_quadrant(
         return "\n".join(lines)
 
     _VERDICT_SCORES: dict[Verdict, tuple[float, float]] = {
-        Verdict.ALIGNED:   (0.25, 0.75),   # (debt, value)
+        Verdict.ALIGNED: (0.25, 0.75),  # (debt, value)
         Verdict.AMBIGUOUS: (0.50, 0.50),
-        Verdict.DRIFT:     (0.75, 0.25),
+        Verdict.DRIFT: (0.75, 0.25),
     }
 
     for entry in journal:
@@ -227,6 +231,7 @@ def generate_quadrant(
 # ---------------------------------------------------------------------------
 # generate_mindmap
 # ---------------------------------------------------------------------------
+
 
 def generate_mindmap(
     north_star: NorthStar,
@@ -288,6 +293,7 @@ def generate_mindmap(
 # render_dashboard
 # ---------------------------------------------------------------------------
 
+
 def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
     """Orchestrate all chart generators and render the dashboard HTML.
 
@@ -326,6 +332,7 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
 # ---------------------------------------------------------------------------
 # Private loaders
 # ---------------------------------------------------------------------------
+
 
 def _load_all_sagas(store: MemoryStore) -> list[Saga]:
     """Load all sagas from the saga index."""
