@@ -75,3 +75,15 @@ def test_read_repo_north_star_markdown_can_read_git_ref_instead_of_checkout(
 
     assert "BasePolicy" in markdown
     assert "HeadPolicy" not in markdown
+
+
+def test_read_repo_north_star_markdown_rejects_flag_injection(tmp_path: Path) -> None:
+    import pytest
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    with pytest.raises(ValueError, match="Invalid git ref"):
+        read_repo_north_star_markdown(repo, ref="-V")
+
+    with pytest.raises(ValueError, match="Invalid path"):
+        read_repo_north_star_markdown(repo, ref="main", path="-o")
