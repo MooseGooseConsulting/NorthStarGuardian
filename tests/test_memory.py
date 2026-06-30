@@ -118,6 +118,31 @@ class TestReadWrite:
         with pytest.raises(ValueError, match="outside Guardian storage"):
             store.write("../escape.txt", "no")
 
+    def test_rejects_absolute_path(self, tmp_path: Path) -> None:
+        _repo, store = self._initialized_store(tmp_path)
+
+        with pytest.raises(ValueError, match="must be relative"):
+            store.write("/etc/passwd", "no")
+
+    def test_list_with_file_prefix_returns_that_file(self, tmp_path: Path) -> None:
+        _repo, store = self._initialized_store(tmp_path)
+        store.write("memory/journal/entry.md", "content")
+
+        result = store.list("memory/journal/entry.md")
+
+        assert result == ["memory/journal/entry.md"]
+
+    def test_custom_relative_storage_path(self, tmp_path: Path) -> None:
+        repo = _make_repo(tmp_path / "repo")
+        # Relative storage_path should be resolved under repo_root
+        store = MemoryStore(repo, storage_path=Path("custom/guardian"))
+        store.ensure_initialized()
+
+        store.write("file.txt", "hello")
+
+        assert store.read("file.txt") == "hello"
+        assert (repo / "custom" / "guardian" / "file.txt").exists()
+
 
 class TestCommitAndPush:
     def test_commit_and_push_is_noop_for_repo_native_store(self, tmp_path: Path) -> None:

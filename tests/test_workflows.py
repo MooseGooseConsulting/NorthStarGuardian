@@ -132,6 +132,20 @@ class TestGuardianWorkflow:
             "guardian.yml must not react to human comment commands"
         )
 
+    def test_commit_step_does_not_stage_bare_memory_directory(self) -> None:
+        """Guardian state lives under .github/guardian/; a bare 'memory/' path is wrong."""
+        jobs = self._data().get("jobs", {})
+        interview_job = jobs.get("interview", {})
+        runs = _steps_run_strings(interview_job)
+        commit_runs = [r for r in runs if "git add" in r]
+        for run in commit_runs:
+            # Each 'git add' token must not be a bare "memory/" path.
+            for token in run.split():
+                assert token != "memory/", (
+                    "guardian.yml Commit step adds bare 'memory/' — "
+                    "Guardian state belongs under .github/guardian/ only"
+                )
+
 
 # ---------------------------------------------------------------------------
 # guardian-debt.yml — specific assertions

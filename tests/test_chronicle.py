@@ -443,3 +443,24 @@ class TestReadChronicle:
 
         pr_numbers = [e.pr_number for e in result]
         assert pr_numbers == sorted(pr_numbers), "Entries should be in filename order"
+
+    def test_malformed_journal_file_is_silently_skipped(self) -> None:
+        store = FakeStore()
+        _seed_journal(store, self._sample_entries())
+        # Inject a file without proper frontmatter delimiters.
+        store.write("memory/journal/2026-01-01-pr-0.md", "no frontmatter here")
+
+        result = read_chronicle(store)
+
+        # The valid entries should still be returned; the bad one is silently skipped.
+        assert len(result) == 3
+        assert all(e.pr_number != 0 for e in result)
+
+    def test_non_md_files_in_journal_dir_are_ignored(self) -> None:
+        store = FakeStore()
+        _seed_journal(store, self._sample_entries())
+        store.write("memory/journal/.gitkeep", "")
+
+        result = read_chronicle(store)
+
+        assert len(result) == 3
