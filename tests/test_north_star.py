@@ -6,6 +6,7 @@ Uses FakeStore (from conftest.py) so no git or network activity occurs.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -481,14 +482,14 @@ class TestRenderNorthStarTemplate:
 
 
 class TestResolvRepoPath:
-    def test_absolute_path_raises(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_absolute_path_raises(self, tmp_path: Path) -> None:
         """_resolve_repo_path raises ValueError for absolute paths."""
         from guardian.north_star import _resolve_repo_path
 
         with pytest.raises(ValueError, match="must be relative"):
             _resolve_repo_path(tmp_path, "/etc/passwd")
 
-    def test_path_traversal_raises(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_path_traversal_raises(self, tmp_path: Path) -> None:
         """_resolve_repo_path raises ValueError for paths that escape the repo root."""
         from guardian.north_star import _resolve_repo_path
 
@@ -497,7 +498,7 @@ class TestResolvRepoPath:
 
 
 class TestReadRepoNorthStarMarkdown:
-    def test_git_ref_not_found_raises(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    def test_git_ref_not_found_raises(self, tmp_path: Path) -> None:
         """read_repo_north_star_markdown raises FileNotFoundError when git show fails."""
         import subprocess as sp
         from unittest.mock import patch
@@ -513,7 +514,7 @@ class TestReadRepoNorthStarMarkdown:
         ):
             read_repo_north_star_markdown(tmp_path, ref="abc")
 
-    def test_file_not_found_raises(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    def test_file_not_found_raises(self, tmp_path: Path) -> None:
         """read_repo_north_star_markdown raises FileNotFoundError when file is absent."""
         from guardian.north_star import read_repo_north_star_markdown
 
