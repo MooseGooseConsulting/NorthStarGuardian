@@ -178,6 +178,21 @@
     }
 
     /* ------------------------------------------------------------------ */
+    /* Badges & Operator Overviews                                         */
+    /* ------------------------------------------------------------------ */
+    .badge {
+      display: inline-block;
+      padding: .15rem .40rem;
+      font-size: .75rem;
+      font-weight: 600;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .badge.aligned { background: rgba(25, 135, 84, 0.15); color: var(--aligned); }
+    .badge.ambiguous { background: rgba(253, 126, 20, 0.15); color: var(--ambiguous); }
+    .badge.drift { background: rgba(220, 53, 69, 0.15); color: var(--drift); }
+
+    /* ------------------------------------------------------------------ */
     /* Footer                                                               */
     /* ------------------------------------------------------------------ */
     .site-footer {
@@ -204,6 +219,88 @@
 
 <div class="layout">
   <main class="main-content">
+
+    <!-- Operator Overview -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
+      <!-- What Changed -->
+      <div class="chart-section" style="margin-bottom: 0;">
+        <h2>What Changed</h2>
+        <div class="chart-body" style="padding: 1rem; font-size: 0.9rem;">
+          {% if latest_change %}
+            <p><strong>PR #{{ latest_change.pr_number }}</strong> — <span class="badge {{ latest_change.verdict }}">{{ latest_change.verdict }}</span></p>
+            <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.25rem;">Processed: {{ latest_change.timestamp.strftime('%Y-%m-%d %H:%M') }}</p>
+            <div style="margin-top: 0.5rem; max-height: 80px; overflow-y: auto; font-size: 0.82rem; border-top: 1px solid var(--border); padding-top: 0.5rem;">
+              {{ latest_change.body_markdown | truncate(150) }}
+            </div>
+          {% else %}
+            <p style="color: var(--text-muted);">No recent changes recorded.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- What is Drifting -->
+      <div class="chart-section" style="margin-bottom: 0;">
+        <h2>What is Drifting</h2>
+        <div class="chart-body" style="padding: 1rem; font-size: 0.9rem;">
+          {% if drift_events %}
+            <p><strong>{{ drift_events | length }}</strong> Active Drift Event{{ 's' if drift_events | length != 1 else '' }}</p>
+            <ul style="list-style: none; margin-top: 0.5rem; max-height: 100px; overflow-y: auto; font-size: 0.8rem; border-top: 1px solid var(--border); padding-top: 0.5rem;">
+              {% for e in drift_events[:3] %}
+                <li style="margin-bottom: 0.25rem; word-break: break-all;">
+                  <strong>PR #{{ e.pr_number }}</strong> (<span style="color: var(--drift);">{{ e.principle_id }}</span>): {{ e.details | truncate(60) }}
+                </li>
+              {% endfor %}
+              {% if drift_events | length > 3 %}
+                <li style="color: var(--text-muted); font-style: italic;">+ {{ drift_events | length - 3 }} more</li>
+              {% endif %}
+            </ul>
+          {% else %}
+            <p style="color: var(--aligned);">✓ No active drift detected.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- What is Overdue -->
+      <div class="chart-section" style="margin-bottom: 0;">
+        <h2>What is Overdue</h2>
+        <div class="chart-body" style="padding: 1rem; font-size: 0.9rem;">
+          {% if expired_timers %}
+            <p style="color: var(--drift);"><strong>{{ expired_timers | length }}</strong> Overdue Debt Timer{{ 's' if expired_timers | length != 1 else '' }}</p>
+            <ul style="list-style: none; margin-top: 0.5rem; max-height: 100px; overflow-y: auto; font-size: 0.8rem; border-top: 1px solid var(--border); padding-top: 0.5rem;">
+              {% for t in expired_timers[:3] %}
+                <li style="margin-bottom: 0.25rem;">
+                  <strong>PR #{{ t.pr_number }}</strong> (<span style="color: var(--ambiguous);">{{ t.principle_id }}</span>): {{ t.justification | truncate(60) }}
+                </li>
+              {% endfor %}
+              {% if expired_timers | length > 3 %}
+                <li style="color: var(--text-muted); font-style: italic;">+ {{ expired_timers | length - 3 }} more</li>
+              {% endif %}
+            </ul>
+          {% else %}
+            <p style="color: var(--aligned);">✓ All debt timers are within limits.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Most Active Principles -->
+      <div class="chart-section" style="margin-bottom: 0;">
+        <h2>Active Principles</h2>
+        <div class="chart-body" style="padding: 1rem; font-size: 0.9rem;">
+          {% if active_principles %}
+            <ul style="list-style: none; max-height: 140px; overflow-y: auto;">
+              {% for p_id, count in active_principles[:4] %}
+                <li style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                  <span style="font-family: var(--font-mono); font-size: 0.8rem; word-break: break-all; max-width: 170px;">{{ p_id }}</span>
+                  <span class="badge" style="background-color: var(--accent); color: white; padding: 1px 6px; border-radius: 10px; font-size: 0.75rem;">{{ count }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p style="color: var(--text-muted);">No activity recorded.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
 
     <!-- Saga Timeline -->
     <section class="chart-section">

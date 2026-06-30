@@ -11,12 +11,12 @@ The PR is ALIGNED. Your suggestions should focus on minor refinements or "gold-p
 
 ### North Star Principles
 {% for p in north_star.principles %}
-- **{{ p.id }}**: {{ p.description }}
+- **{{ p.id }}**: {{ p.text }}
 {% endfor %}
 
 ### PR Intent
 {{ intent.one_line }}
-{{ intent.primary_goal }}
+{{ intent.paragraph }}
 
 ### Principle Evaluations
 {% for pe in evaluations %}
@@ -26,7 +26,8 @@ The PR is ALIGNED. Your suggestions should focus on minor refinements or "gold-p
 ### Diff Summary
 {{ diff.summary_stats }}
 
-Return exactly 1 to 3 suggestions. Each suggestion must be a single line starting with "- ".
-Be specific, technical, and brief.
-Do not include preamble or conversational filler.
+Return exactly 1 to 3 suggestions in a JSON array of strings. 
+Do not include preamble, conversational filler, or Markdown fences outside of the JSON.
+Format: ["suggestion 1", "suggestion 2"]
+
 Suggestions:

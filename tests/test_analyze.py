@@ -14,6 +14,7 @@ import pytest
 
 from guardian.analyze import (
     LLMOutputError,
+    _draft_suggestions,
     _parse_variance_tags,
     analyze_diff,
     assess_intent,
@@ -785,7 +786,7 @@ class TestAssessIntentWithNorthStar:
 
 
 class TestRunInterview:
-    def _make_all_mock_client(self, north_star: NorthStar) -> MagicMock:
+    def _make_all_mock_client(self, north_star: NorthStar, count: int = 5) -> MagicMock:
         """Return a client that returns sensible JSON for each call in order."""
         intent_resp = json.dumps(
             {
@@ -825,7 +826,8 @@ class TestRunInterview:
 
         client = MagicMock()
         responses = []
-        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
+        raw_texts = [intent_resp, alignment_resp, ap_resp, chronicle_resp, suggestions_resp]
+        for text in raw_texts[:count]:
             block = MagicMock()
             block.content = text
             choice = MagicMock()
@@ -888,10 +890,11 @@ class TestRunInterview:
         )
         ap_resp = "[]"
         chronicle_resp = "Drift detected."
+        suggestions_resp = "[]"
 
         client = MagicMock()
         responses = []
-        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
+        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp, suggestions_resp]:
             block = MagicMock()
             block.content = text
             choice = MagicMock()
@@ -936,9 +939,10 @@ class TestRunInterview:
         )
         ap_resp = "[]"
         chronicle_resp = "Ambiguous caching layer added."
+        suggestions_resp = "[]"
 
         responses = []
-        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
+        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp, suggestions_resp]:
             block = MagicMock()
             block.content = text
             choice = MagicMock()
@@ -952,7 +956,7 @@ class TestRunInterview:
         report = run_interview(diff, north_star, client=client, model="test")
         assert report.overall_verdict == Verdict.AMBIGUOUS
 
-    def test_run_interview_makes_four_llm_calls(
+    def test_run_interview_makes_five_llm_calls(
         self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
