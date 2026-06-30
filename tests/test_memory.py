@@ -175,3 +175,46 @@ class TestSession:
 
         assert store.read("a.txt") == "alpha"
         assert store.read("b.txt") == "beta"
+
+    def test_commit_and_push_calls_subprocess_when_staged(self, tmp_path: Path) -> None:
+        """commit_and_push calls git commit when staged changes exist."""
+        from unittest.mock import MagicMock, patch
+
+        repo, store = TestReadWrite()._initialized_store(tmp_path)
+
+        def fake_run(args, **kwargs):
+            result = MagicMock()
+            if "diff" in args:
+                result.returncode = 1  # staged changes exist
+            else:
+                result.returncode = 0
+            return result
+
+        with patch("guardian.memory.subprocess.run", side_effect=fake_run) as mock_run:
+            store.commit_and_push("test commit", push=True)
+
+        assert any("add" in str(c) for c in mock_run.call_args_list)
+        assert any("commit" in str(c) for c in mock_run.call_args_list)
+        assert any("push" in str(c) for c in mock_run.call_args_list)
+
+    def test_commit_no_push_skips_push(self, tmp_path: Path) -> None:
+        """commit_and_push skips git push when push=False."""
+        from unittest.mock import MagicMock, patch
+
+        repo, store = TestReadWrite()._initialized_store(tmp_path)
+
+        def fake_run(args, **kwargs):
+            result = MagicMock()
+            if "diff" in args:
+                result.returncode = 1  # staged changes exist
+            else:
+                result.returncode = 0
+            return result
+
+        with patch("guardian.memory.subprocess.run", side_effect=fake_run) as mock_run:
+            store.commit_and_push("commit only", push=False)
+
+        all_args = [c.args[0] for c in mock_run.call_args_list]
+        # "push" should not appear as a git subcommand (index 3)
+        assert not any(len(a) > 3 and a[3] == "push" for a in all_args)
+        assert any(len(a) > 3 and a[3] == "commit" for a in all_args)
