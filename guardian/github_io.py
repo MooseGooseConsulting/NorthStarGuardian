@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from github import Github
+from github import Github, GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
