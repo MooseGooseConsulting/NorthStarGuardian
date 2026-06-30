@@ -128,17 +128,6 @@ def _timer_to_dict(timer: DebtTimer) -> dict[str, Any]:
     }
 
 
-def _drift_from_dict(d: dict[str, Any]) -> DriftEvent:
-    return DriftEvent(
-        id=d["id"],
-        pr_number=int(d["pr_number"]),
-        principle_id=str(d["principle_id"]),
-        severity=DriftSeverity(d["severity"]),
-        details=str(d["details"]),
-        timestamp=_ensure_aware(datetime.fromisoformat(d["timestamp"])),
-    )
-
-
 def _drift_to_dict(event: DriftEvent) -> dict[str, Any]:
     return {
         "id": event.id,
