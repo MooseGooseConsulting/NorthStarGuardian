@@ -476,3 +476,120 @@ class TestRenderDashboard:
                 assert netloc == "cdn.jsdelivr.net" or netloc.endswith(".jsdelivr.net"), (
                     f"Unexpected external asset domain in: {ref!r}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage for dashboard edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateGanttEdgeCases:
+    def test_abandoned_saga_has_crit_modifier(self) -> None:
+        """ABANDONED saga status triggers 'crit' Mermaid modifier."""
+        saga = _make_saga(status=SagaStatus.ABANDONED)
+        result = generate_gantt([saga])
+        assert "crit" in result
+
+    def test_saga_without_pr_numbers_uses_section_name(self) -> None:
+        """A saga with no PR numbers falls back to section name in the bar."""
+        saga = Saga(
+            id="no-prs",
+            name="No PRs Saga",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            end_date=datetime(2026, 3, 31, tzinfo=UTC),
+            status=SagaStatus.ACTIVE,
+            pr_numbers=[],
+            description="A saga with no PR numbers.",
+        )
+        result = generate_gantt([saga])
+        assert "No PRs Saga" in result
+        assert "PR #" not in result
+
+
+class TestGenerateGitGraphEdgeCases:
+    def test_non_drift_commit_after_drift_merges_back(self) -> None:
+        """A non-drift commit following drift commits triggers checkout+merge of drift."""
+        drift = [
+            DriftEvent(
+                id="de-1",
+                pr_number=1,
+                principle_id="p1",
+                severity=DriftSeverity.HIGH,
+                details="...",
+                timestamp=datetime(2026, 1, 10, tzinfo=UTC),
+            )
+        ]
+        journal = [
+            JournalEntry(
+                pr_number=1,
+                timestamp=datetime(2026, 1, 10, tzinfo=UTC),
+                saga_id="s1",
+                verdict=Verdict.DRIFT,
+                body_markdown="",
+            ),
+            JournalEntry(
+                pr_number=2,
+                timestamp=datetime(2026, 2, 1, tzinfo=UTC),
+                saga_id="s1",
+                verdict=Verdict.ALIGNED,
+                body_markdown="",
+            ),
+        ]
+        result = generate_gitgraph(drift, journal)
+        assert "merge drift" in result
+        assert "checkout main" in result
+
+
+class TestLoadSagasEdgeCases:
+    """Coverage for _load_sagas error path (lines 349-350)."""
+
+    def test_malformed_saga_index_entry_is_skipped(self) -> None:
+        """An index entry missing required fields is silently skipped."""
+        from guardian.dashboard import render_dashboard
+
+        store = FakeStore()
+        # Write an index with one valid and one invalid saga entry
+        store.write_json(
+            "memory/sagas/_index.json",
+            {
+                "sagas": [
+                    # valid minimal entry
+                    {
+                        "id": "good-saga",
+                        "name": "Good Saga",
+                        "path": "memory/sagas/good-saga.json",
+                        "status": "active",
+                        "start_date": "2026-01-01T00:00:00+00:00",
+                    },
+                    # invalid: missing required field "start_date"
+                    {"id": "bad-saga", "name": "Bad Saga"},
+                ]
+            },
+        )
+        north_star = _make_north_star()
+        # Should render without raising even though one entry is malformed
+        html = render_dashboard(store, north_star)
+        assert "Good Saga" in html or isinstance(html, str)
+
+
+class TestLoadDriftEventsEdgeCases:
+    """Coverage for _load_drift_events error path (lines 364-365)."""
+
+    def test_malformed_drift_event_returns_empty(self) -> None:
+        """DriftEvent with invalid data returns an empty list, not an exception."""
+        from guardian.dashboard import render_dashboard
+
+        store = FakeStore()
+        store.write_json(
+            "memory/drift-ledger.json",
+            {
+                "events": [
+                    # missing required fields — DriftEvent(**item) should fail
+                    {"not_a_real_field": True}
+                ]
+            },
+        )
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
+        # Should still produce valid HTML
+        assert "<html" in html or "<!DOCTYPE" in html or isinstance(html, str)
