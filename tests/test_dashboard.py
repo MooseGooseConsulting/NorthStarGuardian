@@ -465,9 +465,14 @@ class TestRenderDashboard:
         north_star = _make_north_star()
         html = render_dashboard(store, north_star)
         import re
+        from urllib.parse import urlparse
 
         # Find all src= and href= attributes
         src_refs = re.findall(r'(?:src|href)=["\']([^"\']+)["\']', html)
         for ref in src_refs:
             if ref.startswith("http"):
-                assert "jsdelivr.net" in ref, f"Unexpected external asset: {ref!r}"
+                parsed = urlparse(ref)
+                netloc = parsed.netloc
+                assert netloc == "cdn.jsdelivr.net" or netloc.endswith(".jsdelivr.net"), (
+                    f"Unexpected external asset domain in: {ref!r}"
+                )
