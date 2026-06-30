@@ -17,6 +17,7 @@ from guardian.analyze import (
     _parse_variance_tags,
     analyze_diff,
     assess_intent,
+    assess_intent_with_north_star,
     detect_anti_patterns,
     evaluate_alignment,
     run_interview,
@@ -229,6 +230,39 @@ class TestAnalyzeDiff:
         result = analyze_diff(diff, simple_pr_meta)
         assert result.files[0].status == "removed"
 
+    def test_renamed_file_status(self, simple_pr_meta: dict[str, Any]) -> None:
+        diff = """\
+--- a/old_name.py
++++ b/new_name.py
+@@ -1,2 +1,2 @@
+ x = 1
+-y = 2
++z = 2
+"""
+        result = analyze_diff(diff, simple_pr_meta)
+        assert result.files[0].status == "renamed"
+
+    def test_dep_comment_and_section_lines_are_skipped(
+        self, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        """Comment, blank, and section-header lines in dependency files are ignored."""
+        diff = """\
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,5 @@
++# This is a comment
++
++[section-header]
++requests>=2.31.0
++some/slashed/name
+"""
+        result = analyze_diff(diff, simple_pr_meta)
+        # Only "requests" is a valid package name
+        assert "requests" in result.new_packages
+        # slashed name, comments, and blanks must not appear
+        assert all("/" not in p for p in result.new_packages)
+        assert "" not in result.new_packages
+
     def test_pr_meta_defaults(self) -> None:
         result = analyze_diff(SIMPLE_DIFF, {})
         assert result.pr_number == 0
@@ -280,6 +314,18 @@ class TestParseVarianceTags:
         text = "[VARIANCE: P2 — test, 5 days]"
         tags = _parse_variance_tags(text)
         assert tags[0].raw == text
+
+    def test_justification_fallback_when_only_days_present(self) -> None:
+        """When justification becomes empty after stripping the days clause, body is used."""
+        # A body like "7 days P1" has days at position 0 in body;
+        # after trimming the days part the justification would be empty, so
+        # the code falls back to the full body text.
+        text = "[VARIANCE: 7 days hotfix]"
+        tags = _parse_variance_tags(text)
+        assert len(tags) == 1
+        assert tags[0].expires_in_days == 7
+        # The fallback uses the full body when justification becomes empty
+        assert tags[0].justification  # must be non-empty (fallback applied)
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +418,15 @@ class TestEvaluateAlignment:
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client('{"wrong": "type"}')
+        with pytest.raises(LLMOutputError):
+            evaluate_alignment(diff, north_star, client=client, model="test")
+
+    def test_non_dict_list_items_raise_llm_output_error(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        """A valid JSON list whose elements are not dicts should raise LLMOutputError."""
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = _make_client(json.dumps([1, 2, 3]))
         with pytest.raises(LLMOutputError):
             evaluate_alignment(diff, north_star, client=client, model="test")
 
@@ -475,6 +530,29 @@ class TestEvaluateAlignment:
         p1 = next(e for e in result if e.principle_id == "P1")
         assert p1.verdict == Verdict.DRIFT
 
+    def test_invented_principle_id_is_skipped(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        """LLM-invented principle IDs not in the north star are silently skipped."""
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        response = json.dumps(
+            [
+                {
+                    "principle_id": "INVENTED_P99",
+                    "relevant": True,
+                    "verdict": "aligned",
+                    "reasoning": "hallucinated",
+                    "citations": [],
+                },
+            ]
+        )
+        client = _make_client(response)
+        # All three real principles get default (not-relevant) entries; invented one skipped
+        result = evaluate_alignment(diff, north_star, client=client, model="test")
+        ids = [e.principle_id for e in result]
+        assert "INVENTED_P99" not in ids
+        assert len(result) == 3
+
 
 # ---------------------------------------------------------------------------
 # detect_anti_patterns — mocked LLM
@@ -539,6 +617,24 @@ class TestDetectAntiPatterns:
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client("this is not json")
+        with pytest.raises(LLMOutputError):
+            detect_anti_patterns(diff, north_star, client=client, model="test")
+
+    def test_non_list_response_raises_llm_output_error(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        """A valid JSON object (not list) should raise LLMOutputError."""
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = _make_client(json.dumps({"error": "unexpected object"}))
+        with pytest.raises(LLMOutputError):
+            detect_anti_patterns(diff, north_star, client=client, model="test")
+
+    def test_non_dict_list_items_raise_llm_output_error(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        """A JSON list whose elements are not dicts should raise LLMOutputError."""
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = _make_client(json.dumps([1, 2, 3]))
         with pytest.raises(LLMOutputError):
             detect_anti_patterns(diff, north_star, client=client, model="test")
 
@@ -616,6 +712,71 @@ class TestAssessIntent:
         client = _make_client(json.dumps({"one_line": "", "paragraph": "Some text."}))
         with pytest.raises(LLMOutputError):
             assess_intent(simple_pr_meta, diff, client=client, model="test")
+
+    def test_empty_choices_raises_llm_output_error(self, simple_pr_meta: dict[str, Any]) -> None:
+        """assess_intent raises LLMOutputError when client returns no choices."""
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = MagicMock()
+        response = MagicMock()
+        response.choices = []
+        client.chat.completions.create.return_value = response
+        with pytest.raises(LLMOutputError):
+            assess_intent(simple_pr_meta, diff, client=client, model="test")
+
+    def test_none_content_raises_llm_output_error(self, simple_pr_meta: dict[str, Any]) -> None:
+        """assess_intent raises LLMOutputError when choice content is None."""
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = MagicMock()
+        choice = MagicMock()
+        choice.message.content = None
+        response = MagicMock()
+        response.choices = [choice]
+        client.chat.completions.create.return_value = response
+        with pytest.raises(LLMOutputError):
+            assess_intent(simple_pr_meta, diff, client=client, model="test")
+
+    def test_empty_string_content_raises_llm_output_error(
+        self, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        """assess_intent raises LLMOutputError when content is an empty string."""
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = MagicMock()
+        choice = MagicMock()
+        choice.message.content = ""
+        response = MagicMock()
+        response.choices = [choice]
+        client.chat.completions.create.return_value = response
+        with pytest.raises(LLMOutputError):
+            assess_intent(simple_pr_meta, diff, client=client, model="test")
+
+
+# ---------------------------------------------------------------------------
+# assess_intent_with_north_star — error paths
+# ---------------------------------------------------------------------------
+
+
+class TestAssessIntentWithNorthStar:
+    def test_wrong_type_raises_llm_output_error(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        """assess_intent_with_north_star raises LLMOutputError for non-dict JSON."""
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = _make_client("[1, 2, 3]")
+        with pytest.raises(LLMOutputError):
+            assess_intent_with_north_star(
+                simple_pr_meta, diff, north_star, client=client, model="test"
+            )
+
+    def test_empty_one_line_raises_llm_output_error(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        """assess_intent_with_north_star raises LLMOutputError for empty one_line."""
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = _make_client(json.dumps({"one_line": "", "paragraph": "Some text."}))
+        with pytest.raises(LLMOutputError):
+            assess_intent_with_north_star(
+                simple_pr_meta, diff, north_star, client=client, model="test"
+            )
 
 
 # ---------------------------------------------------------------------------

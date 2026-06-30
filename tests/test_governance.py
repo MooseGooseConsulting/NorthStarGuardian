@@ -435,3 +435,112 @@ class TestResolveDebt:
         # t2 is still active
         assert len(result["active"]) == 1
         assert result["active"][0].principle_id == "P2"
+
+
+# ---------------------------------------------------------------------------
+# Legacy migration paths and edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestLegacyPaths:
+    def test_legacy_drift_ledger_is_loaded(self, store: FakeStore) -> None:
+        """Drift events stored at the legacy root-level path are read correctly."""
+        # Write drift data at the legacy path (no "memory/" prefix)
+        store.write_json(
+            "drift-ledger.json",
+            [
+                {
+                    "id": "legacy-1",
+                    "pr_number": 7,
+                    "principle_id": "P1",
+                    "severity": "low",
+                    "details": "Old-style drift record.",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                }
+            ],
+        )
+        # log_drift reads the ledger first and appends to it
+        event = log_drift(
+            store,
+            pr_number=8,
+            principle_id="P1",
+            severity=DriftSeverity.LOW,
+            details="New event.",
+        )
+        # The new event was added; legacy data was read from the old path
+        assert event.pr_number == 8
+        # The new ledger is written to the canonical path
+        data = store.read_json("memory/drift-ledger.json")
+        assert isinstance(data, list)
+        assert len(data) == 2
+
+    def test_legacy_debt_timers_are_loaded(self, store: FakeStore, config: GuardianConfig) -> None:
+        """Debt timers stored at the legacy root-level path are read correctly."""
+        store.write_json(
+            "debt-timers.json",
+            [
+                {
+                    "id": "legacy-timer-1",
+                    "pr_number": 3,
+                    "principle_id": "P1",
+                    "justification": "legacy hotfix",
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "expires_at": "2026-01-08T00:00:00+00:00",
+                    "resolved_at": None,
+                    "level": 0,
+                    "affected_paths": [],
+                }
+            ],
+        )
+        result = check_debt_timers(store, now=_fixed_now())
+        # The legacy timer is already expired by _fixed_now (2026-05-22)
+        assert len(result["expired"]) == 1
+        assert result["expired"][0].id == "legacy-timer-1"
+
+    def test_naive_datetime_in_timer_is_made_aware(self, store: FakeStore) -> None:
+        """A timer stored with a naive ISO datetime is normalised to UTC."""
+        store.write_json(
+            "memory/debt-timers.json",
+            [
+                {
+                    "id": "naive-dt-timer",
+                    "pr_number": 5,
+                    "principle_id": "P2",
+                    "justification": "naive datetime test",
+                    "created_at": "2026-01-01T00:00:00",  # no timezone
+                    "expires_at": "2026-01-08T00:00:00",  # no timezone
+                    "resolved_at": None,
+                    "level": 0,
+                    "affected_paths": [],
+                }
+            ],
+        )
+        result = check_debt_timers(store, now=_fixed_now())
+        # Timer is expired, but should not raise due to naive datetimes
+        assert len(result["expired"]) == 1
+        timer = result["expired"][0]
+        assert timer.created_at.tzinfo is not None
+
+    def test_zero_duration_timer_is_expired(self, store: FakeStore) -> None:
+        """A timer with created_at == expires_at not yet past is classed as expired."""
+        # created_at == expires_at in the future: lifespan == 0 so the else branch fires
+        same_time = "2026-12-31T00:00:00+00:00"
+        store.write_json(
+            "memory/debt-timers.json",
+            [
+                {
+                    "id": "zero-dur-timer",
+                    "pr_number": 9,
+                    "principle_id": "P3",
+                    "justification": "instantaneous",
+                    "created_at": same_time,
+                    "expires_at": same_time,
+                    "resolved_at": None,
+                    "level": 0,
+                    "affected_paths": [],
+                }
+            ],
+        )
+        result = check_debt_timers(store, now=_fixed_now())
+        expired_ids = [t.id for t in result["expired"]]
+        assert "zero-dur-timer" in expired_ids
