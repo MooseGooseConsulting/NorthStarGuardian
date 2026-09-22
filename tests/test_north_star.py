@@ -487,7 +487,7 @@ class TestResolvRepoPath:
         from guardian.north_star import _resolve_repo_path
 
         with pytest.raises(ValueError, match="must be relative"):
-            _resolve_repo_path(tmp_path, "/etc/passwd")
+            _resolve_repo_path(tmp_path, str(tmp_path / "absolute.txt"))
 
     def test_path_traversal_raises(self, tmp_path: Path) -> None:
         """_resolve_repo_path raises ValueError for paths that escape the repo root."""

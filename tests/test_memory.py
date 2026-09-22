@@ -122,7 +122,7 @@ class TestReadWrite:
         _repo, store = self._initialized_store(tmp_path)
 
         with pytest.raises(ValueError, match="must be relative"):
-            store.write("/etc/passwd", "no")
+            store.write(str(tmp_path / "absolute.txt"), "no")
 
     def test_list_with_file_prefix_returns_that_file(self, tmp_path: Path) -> None:
         _repo, store = self._initialized_store(tmp_path)
