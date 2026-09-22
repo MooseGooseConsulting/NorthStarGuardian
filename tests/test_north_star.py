@@ -6,6 +6,7 @@ Uses FakeStore (from conftest.py) so no git or network activity occurs.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -53,6 +54,7 @@ def _sample_north_star() -> NorthStar:
 # ---------------------------------------------------------------------------
 # Markdown round-trip
 # ---------------------------------------------------------------------------
+
 
 class TestMarkdownRoundTrip:
     def test_render_and_parse_identity(self) -> None:
@@ -124,6 +126,7 @@ class TestMarkdownRoundTrip:
 # Read / write via FakeStore
 # ---------------------------------------------------------------------------
 
+
 class TestReadWrite:
     def test_write_and_read_north_star(self, fake_store: FakeStore) -> None:
         c = _sample_north_star()
@@ -145,6 +148,7 @@ class TestReadWrite:
 # ---------------------------------------------------------------------------
 # amend_north_star
 # ---------------------------------------------------------------------------
+
 
 class TestAmendNorthStar:
     def _store_with_north_star(self, fake_store: FakeStore) -> FakeStore:
@@ -279,6 +283,7 @@ class TestAmendNorthStar:
 # append_amendment / amendment log
 # ---------------------------------------------------------------------------
 
+
 class TestAmendmentLog:
     def _make_amendment(self) -> Amendment:
         return Amendment(
@@ -326,6 +331,7 @@ class TestAmendmentLog:
 # ---------------------------------------------------------------------------
 # initialize_north_star
 # ---------------------------------------------------------------------------
+
 
 class TestInitializeNorthStar:
     def _answers(self) -> dict:
@@ -394,3 +400,123 @@ class TestInitializeNorthStar:
         del answers["anti_patterns"]
         c = initialize_north_star(answers, actor="alice")
         assert c.anti_patterns == []
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage for uncovered paths
+# ---------------------------------------------------------------------------
+
+
+class TestNorthStarEdgeCases:
+    def test_principle_with_tags_is_serialised(self) -> None:
+        """A principle with tags includes them in the rendered markdown."""
+        ns = _sample_north_star()
+        ns = ns.model_copy(
+            update={
+                "principles": [
+                    Principle(
+                        id="p1",
+                        rank=1,
+                        text="All data through LLM",
+                        tags=["core", "security"],
+                    )
+                ]
+            }
+        )
+        raw = render_north_star_markdown(ns)
+        assert "core" in raw
+
+    def test_parse_datetime_accepts_datetime_object(self) -> None:
+        """_parse_datetime passes through an existing datetime unchanged."""
+        from guardian.north_star import _parse_datetime
+
+        dt = datetime(2026, 1, 1, tzinfo=UTC)
+        result = _parse_datetime(dt)
+        assert result == dt
+
+    def test_amend_anti_pattern_unknown_id_raises(self, fake_store: FakeStore) -> None:
+        """amend_north_star raises ValueError when target anti-pattern id is missing."""
+        ns = _sample_north_star()
+        write_north_star(fake_store, ns)
+        with pytest.raises(ValueError, match="not found"):
+            amend_north_star(
+                fake_store,
+                target="anti_pattern",
+                target_id="nonexistent-ap",
+                after="new text",
+                rationale="r",
+                actor="alice",
+            )
+
+    def test_amend_anti_pattern_requires_target_id(self, fake_store: FakeStore) -> None:
+        """amend_north_star raises ValueError when target_id is None for anti_pattern."""
+        ns = _sample_north_star()
+        write_north_star(fake_store, ns)
+        with pytest.raises(ValueError, match="target_id is required"):
+            amend_north_star(
+                fake_store,
+                target="anti_pattern",
+                target_id=None,
+                after="new text",
+                rationale="r",
+                actor="alice",
+            )
+
+
+class TestRenderNorthStarTemplate:
+    def test_renders_project_name(self) -> None:
+        """render_north_star_template returns a non-empty markdown string."""
+        from guardian.north_star import render_north_star_template
+
+        result = render_north_star_template(
+            {
+                "project_name": "Test Project",
+                "identity_statement": "A test project.",
+                "principles": ["Principle 1"],
+                "anti_patterns": ["Anti-pattern 1"],
+                "approved_architecture": "FastAPI + SQLAlchemy",
+            }
+        )
+        assert "Test Project" in result
+        assert "Principle 1" in result
+
+
+class TestResolvRepoPath:
+    def test_absolute_path_raises(self, tmp_path: Path) -> None:
+        """_resolve_repo_path raises ValueError for absolute paths."""
+        from guardian.north_star import _resolve_repo_path
+
+        with pytest.raises(ValueError, match="must be relative"):
+            _resolve_repo_path(tmp_path, str(tmp_path / "absolute.txt"))
+
+    def test_path_traversal_raises(self, tmp_path: Path) -> None:
+        """_resolve_repo_path raises ValueError for paths that escape the repo root."""
+        from guardian.north_star import _resolve_repo_path
+
+        with pytest.raises(ValueError, match="escapes outside"):
+            _resolve_repo_path(tmp_path, "../../etc/shadow")
+
+
+class TestReadRepoNorthStarMarkdown:
+    def test_git_ref_not_found_raises(self, tmp_path: Path) -> None:
+        """read_repo_north_star_markdown raises FileNotFoundError when git show fails."""
+        import subprocess as sp
+        from unittest.mock import patch
+
+        from guardian.north_star import read_repo_north_star_markdown
+
+        fake_result = sp.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="does not exist in 'abc'"
+        )
+        with (
+            patch("guardian.north_star.subprocess.run", return_value=fake_result),
+            pytest.raises(FileNotFoundError, match="does not exist in"),
+        ):
+            read_repo_north_star_markdown(tmp_path, ref="abc")
+
+    def test_file_not_found_raises(self, tmp_path: Path) -> None:
+        """read_repo_north_star_markdown raises FileNotFoundError when file is absent."""
+        from guardian.north_star import read_repo_north_star_markdown
+
+        with pytest.raises(FileNotFoundError):
+            read_repo_north_star_markdown(tmp_path, ".github/north-star.md")

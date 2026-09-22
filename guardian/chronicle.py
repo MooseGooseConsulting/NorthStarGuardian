@@ -110,9 +110,7 @@ def _compose_journal_markdown(
     lines.append("")
 
     # Principle evaluations table (relevant ones only)
-    relevant: list[PrincipleEvaluation] = [
-        pe for pe in report.principle_evaluations if pe.relevant
-    ]
+    relevant: list[PrincipleEvaluation] = [pe for pe in report.principle_evaluations if pe.relevant]
     if relevant:
         lines.append("## Principle Evaluations")
         lines.append("")
@@ -213,7 +211,9 @@ def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
         id=fm["id"],
         name=fm["name"],
         start_date=datetime.fromisoformat(fm["start_date"]),
-        end_date=datetime.fromisoformat(fm["end_date"]) if fm.get("end_date") not in (None, "null", "") else None,
+        end_date=datetime.fromisoformat(fm["end_date"])
+        if fm.get("end_date") not in (None, "null", "")
+        else None,
         status=SagaStatus(fm.get("status", "active")),
         pr_numbers=pr_numbers,
         description=body,

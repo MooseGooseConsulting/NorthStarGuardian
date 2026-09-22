@@ -210,7 +210,10 @@ def recommend_actions(diffs: list[ConfigDiff]) -> list[StewardshipAction]:
                 destructive=destructive,
                 source=diff.source,
                 narrative_ref=diff.narrative_ref,
-                metadata={"operation": operation, **({"include": missing_include} if missing_include else {})},
+                metadata={
+                    "operation": operation,
+                    **({"include": missing_include} if missing_include else {}),
+                },
             )
         )
 
@@ -349,11 +352,10 @@ def load_diffs(path: Path) -> list[ConfigDiff]:
 
 def write_json(path: Path, obj: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    serializable = [
-        item.model_dump(mode="json") if isinstance(item, BaseModel) else item
-        for item in obj
-    ] if isinstance(obj, list) else (
-        obj.model_dump(mode="json") if isinstance(obj, BaseModel) else obj
+    serializable = (
+        [item.model_dump(mode="json") if isinstance(item, BaseModel) else item for item in obj]
+        if isinstance(obj, list)
+        else (obj.model_dump(mode="json") if isinstance(obj, BaseModel) else obj)
     )
     path.write_text(json.dumps(serializable, indent=2), encoding="utf-8")
 
@@ -440,7 +442,10 @@ def _can_auto_apply(action: StewardshipAction, policy: ChronographSafetyPolicy) 
         return False
 
     if action.metadata.get("operation") == "add_missing_include":
-        include = str(action.metadata.get("include") or _detect_missing_include(action.before, action.after, ""))
+        include = str(
+            action.metadata.get("include")
+            or _detect_missing_include(action.before, action.after, "")
+        )
         if not _is_known_safe_include(include):
             return False
         if not _adds_only_known_safe_include(action.before, action.after):

@@ -6,12 +6,13 @@ The OpenAI client is mocked for assign_saga tests.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from guardian.chronicle import (
+    LLMOutputError,
     assign_saga,
     read_chronicle,
     update_saga,
@@ -26,40 +27,7 @@ from guardian.models import (
     SagaStatus,
     Verdict,
 )
-
-# ---------------------------------------------------------------------------
-# FakeStore
-# ---------------------------------------------------------------------------
-
-
-class FakeStore:
-    """In-memory stand-in for MemoryStore — no git, no filesystem."""
-
-    def __init__(self) -> None:
-        self._files: dict[str, str] = {}
-    # MemoryStore interface
-    def read(self, path: str) -> str:
-        if path not in self._files:
-            raise FileNotFoundError(f"FakeStore: {path!r} not found")
-        return self._files[path]
-
-    def read_json(self, path: str) -> Any:
-        return json.loads(self.read(path))
-
-    def exists(self, path: str) -> bool:
-        return path in self._files
-
-    def write(self, path: str, content: str, message: str = "") -> None:
-        self._files[path] = content
-
-    def write_json(self, path: str, obj: Any, message: str = "") -> None:
-        self._files[path] = json.dumps(obj, indent=2, default=str)
-
-    def list(self, prefix: str = "") -> list[str]:
-        if prefix:
-            return sorted(k for k in self._files if k.startswith(prefix))
-        return sorted(self._files.keys())
-
+from tests.helpers import FakeStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -276,9 +244,7 @@ class TestAssignSaga:
         # LLM wants to create "The Metrics Saga" again
         client = self._make_client("CREATE: The Metrics Saga")
 
-        result = assign_saga(
-            store, intent, [existing], client=client, model="claude-test"
-        )
+        result = assign_saga(store, intent, [existing], client=client, model="claude-test")
 
         assert result.id != "the-metrics-saga"
         assert result.id.startswith("the-metrics-saga")
@@ -293,6 +259,82 @@ class TestAssignSaga:
 
         # Should fall back to creating a new saga (the fallback name)
         assert result.status == SagaStatus.ACTIVE
+
+    def test_match_saga_loaded_from_store(self) -> None:
+        """MATCH for a saga not in active_sagas but present in store is loaded."""
+        store = FakeStore()
+        frontmatter = "\n".join(
+            [
+                "---",
+                "id: archived-saga",
+                "name: The Archived Saga",
+                "start_date: 2026-03-01T00:00:00+00:00",
+                "end_date: null",
+                "status: active",
+                "pr_numbers: [5, 6]",
+                "---",
+                "",
+                "Archived work description.",
+            ]
+        )
+        store.write("memory/sagas/archived-saga.md", frontmatter)
+        intent = IntentSummary(one_line="More archived work", paragraph="Extends.")
+        client = self._make_client("MATCH: archived-saga")
+
+        result = assign_saga(store, intent, [], client=client, model="claude-test")
+
+        assert result.id == "archived-saga"
+        assert result.name == "The Archived Saga"
+        assert result.pr_numbers == [5, 6]
+
+    def test_match_saga_malformed_pr_numbers_falls_back_to_empty(self) -> None:
+        """_load_saga_from_store uses empty list when pr_numbers JSON is invalid."""
+        store = FakeStore()
+        frontmatter = "\n".join(
+            [
+                "---",
+                "id: broken-pr-saga",
+                "name: Broken PR Numbers",
+                "start_date: 2026-03-01T00:00:00+00:00",
+                "end_date: null",
+                "status: active",
+                "pr_numbers: NOT_VALID_JSON",
+                "---",
+                "",
+                "Description here.",
+            ]
+        )
+        store.write("memory/sagas/broken-pr-saga.md", frontmatter)
+        intent = IntentSummary(one_line="Fix stuff", paragraph="Fixing.")
+        client = self._make_client("MATCH: broken-pr-saga")
+
+        result = assign_saga(store, intent, [], client=client, model="claude-test")
+
+        assert result.id == "broken-pr-saga"
+        assert result.pr_numbers == []
+
+    def test_match_malformed_saga_file_falls_back_to_create(self) -> None:
+        """MATCH for a saga whose file has no frontmatter delimiters falls back to create."""
+        store = FakeStore()
+        store.write("memory/sagas/malformed-saga.md", "no frontmatter here")
+        intent = IntentSummary(one_line="Test", paragraph="Testing.")
+        client = self._make_client("MATCH: malformed-saga")
+
+        result = assign_saga(store, intent, [], client=client, model="claude-test")
+
+        assert result.status == SagaStatus.ACTIVE
+
+    def test_empty_llm_response_raises_llm_output_error(self) -> None:
+        """assign_saga raises LLMOutputError when the LLM returns empty choices."""
+        store = FakeStore()
+        client = MagicMock()
+        response = MagicMock()
+        response.choices = []
+        client.chat.completions.create.return_value = response
+        intent = IntentSummary(one_line="Test", paragraph="Testing.")
+
+        with pytest.raises(LLMOutputError):
+            assign_saga(store, intent, [], client=client, model="claude-test")
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +407,24 @@ class TestUpdateSaga:
         index = store.read_json("memory/sagas/_index.json")
         ids = [e["id"] for e in index["sagas"]]
         assert "fresh-saga" in ids
+
+    def test_saga_frontmatter_includes_end_date(self) -> None:
+        """Saga with end_date set is serialised with the ISO date string."""
+        store = FakeStore()
+        saga = Saga(
+            id="completed-saga",
+            name="Completed Work",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            end_date=datetime(2026, 6, 1, tzinfo=UTC),
+            status=SagaStatus.ACTIVE,
+            pr_numbers=[],
+            description="Done.",
+        )
+
+        update_saga(store, saga, pr_number=1)
+
+        raw = store.read("memory/sagas/completed-saga.md")
+        assert "end_date: 2026-06-01T00:00:00+00:00" in raw
 
 
 # ---------------------------------------------------------------------------
@@ -480,3 +540,46 @@ class TestReadChronicle:
 
         pr_numbers = [e.pr_number for e in result]
         assert pr_numbers == sorted(pr_numbers), "Entries should be in filename order"
+
+    def test_malformed_journal_file_is_silently_skipped(self) -> None:
+        store = FakeStore()
+        _seed_journal(store, self._sample_entries())
+        # Inject a file without proper frontmatter delimiters.
+        store.write("memory/journal/2026-01-01-pr-0.md", "no frontmatter here")
+
+        result = read_chronicle(store)
+
+        # The valid entries should still be returned; the bad one is silently skipped.
+        assert len(result) == 3
+        assert all(e.pr_number != 0 for e in result)
+
+    def test_non_md_files_in_journal_dir_are_ignored(self) -> None:
+        store = FakeStore()
+        _seed_journal(store, self._sample_entries())
+        store.write("memory/journal/.gitkeep", "")
+
+        result = read_chronicle(store)
+
+        assert len(result) == 3
+
+    def test_journal_entry_missing_required_fields_is_skipped(self) -> None:
+        """A journal file with frontmatter but missing required fields is skipped."""
+        store = FakeStore()
+        # Proper delimiters but no pr_number field
+        store.write(
+            "memory/journal/2026-01-01-pr-missing.md",
+            "\n".join(
+                [
+                    "---",
+                    "timestamp: 2026-01-01 12:00:00 UTC",
+                    "verdict: aligned",
+                    "---",
+                    "",
+                    "Body text.",
+                ]
+            ),
+        )
+
+        result = read_chronicle(store)
+
+        assert result == []

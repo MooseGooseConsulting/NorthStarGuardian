@@ -25,3 +25,4 @@ htmlcov/
 .omc/sessions/
 
 .omc/project-memory.json
+coverage.json

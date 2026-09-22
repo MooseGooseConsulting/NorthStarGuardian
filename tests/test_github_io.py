@@ -36,11 +36,14 @@ class TestGitHubContextFromEnv:
         mock_repo.get_pull.return_value = mock_pr
 
         with (
-            patch("guardian.github_io.os.environ", {
-                "GITHUB_TOKEN": "test-token",
-                "GITHUB_REPOSITORY": "test/repo",
-                "GITHUB_EVENT_NAME": "pull_request",
-            }),
+            patch(
+                "guardian.github_io.os.environ",
+                {
+                    "GITHUB_TOKEN": "test-token",
+                    "GITHUB_REPOSITORY": "test/repo",
+                    "GITHUB_EVENT_NAME": "pull_request",
+                },
+            ),
             patch("guardian.github_io.Github") as mock_gh_cls,
         ):
             mock_gh = mock_gh_cls.return_value
@@ -67,11 +70,14 @@ class TestGitHubContextFromEnv:
         mock_repo.get_pull.return_value = mock_pr
 
         with (
-            patch("guardian.github_io.os.environ", {
-                "GITHUB_TOKEN": "test-token",
-                "GITHUB_REPOSITORY": "test/repo",
-                "GITHUB_EVENT_NAME": "issue_comment",
-            }),
+            patch(
+                "guardian.github_io.os.environ",
+                {
+                    "GITHUB_TOKEN": "test-token",
+                    "GITHUB_REPOSITORY": "test/repo",
+                    "GITHUB_EVENT_NAME": "issue_comment",
+                },
+            ),
             patch("guardian.github_io.Github") as mock_gh_cls,
         ):
             mock_gh = mock_gh_cls.return_value
@@ -90,11 +96,14 @@ class TestGitHubContextFromEnv:
         event_file.write_text(json.dumps(payload), encoding="utf-8")
 
         with (
-            patch("guardian.github_io.os.environ", {
-                "GITHUB_TOKEN": "test-token",
-                "GITHUB_REPOSITORY": "test/repo",
-                "GITHUB_EVENT_NAME": "pull_request",
-            }),
+            patch(
+                "guardian.github_io.os.environ",
+                {
+                    "GITHUB_TOKEN": "test-token",
+                    "GITHUB_REPOSITORY": "test/repo",
+                    "GITHUB_EVENT_NAME": "pull_request",
+                },
+            ),
             patch("guardian.github_io.Github"),
         ):
             ctx = GitHubContext.from_env(event_path=str(event_file))
@@ -199,3 +208,26 @@ class TestPostPrComment:
 
         with pytest.raises(RuntimeError, match="no PR in context"):
             post_pr_comment(mock_ctx, "test")
+
+
+class TestGitHubContextNoEventPath:
+    def test_no_event_path_uses_empty_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When GITHUB_EVENT_PATH is absent, context uses an empty payload."""
+        from unittest.mock import MagicMock, patch
+
+        from guardian.github_io import GitHubContext
+
+        monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
+        monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+        monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+        mock_gh = MagicMock()
+        mock_repo = MagicMock()
+        mock_gh.get_repo.return_value = mock_repo
+
+        with patch("guardian.github_io.Github", return_value=mock_gh):
+            ctx = GitHubContext.from_env(event_path=None)
+
+        assert ctx.pr is None
+        assert ctx.repo is mock_repo

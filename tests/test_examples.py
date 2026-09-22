@@ -3,49 +3,19 @@ sample-dashboard.html deterministically when missing."""
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from guardian.dashboard import render_dashboard
 from guardian.models import AntiPattern, NorthStar, Principle
 from guardian.north_star import parse_north_star_markdown
+from tests.helpers import FakeStore
 
 _EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 _NORTH_STAR_FILE = _EXAMPLES_DIR / "sample-northstar.md"
 _DASHBOARD_FILE = _EXAMPLES_DIR / "sample-dashboard.html"
-
-
-class _FakeStore:
-    """In-memory stand-in for MemoryStore used only for dashboard generation."""
-
-    def __init__(self) -> None:
-        self._files: dict[str, str] = {}
-
-    def read(self, path: str) -> str:
-        if path not in self._files:
-            raise FileNotFoundError(f"fake-store:{path}")
-        return self._files[path]
-
-    def read_json(self, path: str) -> Any:
-        return json.loads(self.read(path))
-
-    def exists(self, path: str) -> bool:
-        return path in self._files
-
-    def write(self, path: str, content: str, message: str = "") -> None:
-        self._files[path] = content
-
-    def write_json(self, path: str, obj: Any, message: str = "") -> None:
-        self._files[path] = json.dumps(obj, indent=2, default=str)
-
-    def list(self, prefix: str = "") -> list[str]:
-        if prefix:
-            return sorted(k for k in self._files if k.startswith(prefix))
-        return sorted(self._files.keys())
 
 
 _DT_BASE = datetime(2026, 2, 1, 10, 0, 0, tzinfo=UTC)
@@ -55,9 +25,9 @@ def _dt(days_offset: int, hour: int = 10) -> datetime:
     return _DT_BASE + timedelta(days=days_offset, hours=hour - 10)
 
 
-def _seed_store() -> tuple[_FakeStore, NorthStar]:
+def _seed_store() -> tuple[FakeStore, NorthStar]:
     """Return a FakeStore pre-loaded with sagas, journal entries, and a North Star."""
-    store = _FakeStore()
+    store = FakeStore()
 
     # -- North Star --------------------------------------------------------
     north_star = NorthStar(
@@ -161,90 +131,96 @@ def _seed_store() -> tuple[_FakeStore, NorthStar]:
         # PR 1 — aligned
         (
             "memory/journal/2026-02-01-pr-1.md",
-            "\n".join([
-                "---",
-                "pr_number: 1",
-                "saga_id: initial-ingestion-pipeline",
-                "verdict: aligned",
-                f"timestamp: {_dt(0).strftime('%Y-%m-%d %H:%M:%S UTC')}",
-                "---",
-                "",
-                "# PR #1 — ALIGNED",
-                "",
-                "PR #1 introduced the core LlamaIndex ingestion pipeline, establishing "
-                "the document loading, chunking, and FAISS indexing flow. All processing "
-                "runs locally with no external service calls.",
-                "",
-                "**Alignment Summary:** Fully aligned with Principles 1, 2, and 3.",
-                "",
-                "## Principle Evaluations",
-                "",
-                "| Principle | Verdict | Reasoning |",
-                "|-----------|---------|-----------|",
-                "| `p1` | aligned | All synthesis flows through the LLM layer. |",
-                "| `p2` | aligned | No outbound calls; FAISS index is local. |",
-                "| `p3` | aligned | Uses LlamaIndex VectorStoreIndex throughout. |",
-                "",
-                "**Saga:** Initial Ingestion Pipeline (`initial-ingestion-pipeline`)",
-                "",
-            ]),
+            "\n".join(
+                [
+                    "---",
+                    "pr_number: 1",
+                    "saga_id: initial-ingestion-pipeline",
+                    "verdict: aligned",
+                    f"timestamp: {_dt(0).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                    "---",
+                    "",
+                    "# PR #1 — ALIGNED",
+                    "",
+                    "PR #1 introduced the core LlamaIndex ingestion pipeline, establishing "
+                    "the document loading, chunking, and FAISS indexing flow. All processing "
+                    "runs locally with no external service calls.",
+                    "",
+                    "**Alignment Summary:** Fully aligned with Principles 1, 2, and 3.",
+                    "",
+                    "## Principle Evaluations",
+                    "",
+                    "| Principle | Verdict | Reasoning |",
+                    "|-----------|---------|-----------|",
+                    "| `p1` | aligned | All synthesis flows through the LLM layer. |",
+                    "| `p2` | aligned | No outbound calls; FAISS index is local. |",
+                    "| `p3` | aligned | Uses LlamaIndex VectorStoreIndex throughout. |",
+                    "",
+                    "**Saga:** Initial Ingestion Pipeline (`initial-ingestion-pipeline`)",
+                    "",
+                ]
+            ),
         ),
         # PR 17 — ambiguous
         (
             "memory/journal/2026-02-16-pr-17.md",
-            "\n".join([
-                "---",
-                "pr_number: 17",
-                "saga_id: caching-layer-exploration",
-                "verdict: ambiguous",
-                f"timestamp: {_dt(15).strftime('%Y-%m-%d %H:%M:%S UTC')}",
-                "---",
-                "",
-                "# PR #17 — AMBIGUOUS",
-                "",
-                "PR #17 introduced a CacheBackend abstraction with InMemoryCache and "
-                "RedisCache implementations. The Redis path accepts an arbitrary URL, "
-                "raising the question of whether hosted Redis would be permitted.",
-                "",
-                "**Alignment Summary:** Ambiguous — local-first guarantee unclear for RedisCache.",
-                "",
-                "## Principle Evaluations",
-                "",
-                "| Principle | Verdict | Reasoning |",
-                "|-----------|---------|-----------|",
-                "| `p2` | ambiguous | RedisCache accepts any URL, including hosted services. |",
-                "",
-                "**Saga:** Caching Layer Exploration (`caching-layer-exploration`)",
-                "",
-            ]),
+            "\n".join(
+                [
+                    "---",
+                    "pr_number: 17",
+                    "saga_id: caching-layer-exploration",
+                    "verdict: ambiguous",
+                    f"timestamp: {_dt(15).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                    "---",
+                    "",
+                    "# PR #17 — AMBIGUOUS",
+                    "",
+                    "PR #17 introduced a CacheBackend abstraction with InMemoryCache and "
+                    "RedisCache implementations. The Redis path accepts an arbitrary URL, "
+                    "raising the question of whether hosted Redis would be permitted.",
+                    "",
+                    "**Alignment Summary:** Ambiguous — local-first guarantee unclear for RedisCache.",
+                    "",
+                    "## Principle Evaluations",
+                    "",
+                    "| Principle | Verdict | Reasoning |",
+                    "|-----------|---------|-----------|",
+                    "| `p2` | ambiguous | RedisCache accepts any URL, including hosted services. |",
+                    "",
+                    "**Saga:** Caching Layer Exploration (`caching-layer-exploration`)",
+                    "",
+                ]
+            ),
         ),
         # PR 22 — drift
         (
             "memory/journal/2026-02-21-pr-22.md",
-            "\n".join([
-                "---",
-                "pr_number: 22",
-                "saga_id: citation-engine",
-                "verdict: drift",
-                f"timestamp: {_dt(20).strftime('%Y-%m-%d %H:%M:%S UTC')}",
-                "---",
-                "",
-                "# PR #22 — DRIFT",
-                "",
-                "PR #22 added a summary endpoint that returns LLM-synthesised text without "
-                "any source citations. This directly conflicts with Principle 4.",
-                "",
-                "**Alignment Summary:** Drift detected — Principle 4 violated.",
-                "",
-                "## Principle Evaluations",
-                "",
-                "| Principle | Verdict | Reasoning |",
-                "|-----------|---------|-----------|",
-                "| `p4` | drift | Summary response contains no citation links. |",
-                "",
-                "**Saga:** Citation Engine (`citation-engine`)",
-                "",
-            ]),
+            "\n".join(
+                [
+                    "---",
+                    "pr_number: 22",
+                    "saga_id: citation-engine",
+                    "verdict: drift",
+                    f"timestamp: {_dt(20).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                    "---",
+                    "",
+                    "# PR #22 — DRIFT",
+                    "",
+                    "PR #22 added a summary endpoint that returns LLM-synthesised text without "
+                    "any source citations. This directly conflicts with Principle 4.",
+                    "",
+                    "**Alignment Summary:** Drift detected — Principle 4 violated.",
+                    "",
+                    "## Principle Evaluations",
+                    "",
+                    "| Principle | Verdict | Reasoning |",
+                    "|-----------|---------|-----------|",
+                    "| `p4` | drift | Summary response contains no citation links. |",
+                    "",
+                    "**Saga:** Citation Engine (`citation-engine`)",
+                    "",
+                ]
+            ),
         ),
     ]
     for path, content in journal_entries:
@@ -301,7 +277,8 @@ def test_dashboard_contains_mermaid_cdn(dashboard_html: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "heading", ["Saga Timeline", "Branch Topology", "Strategic Quadrant", "Principle Map"],
+    "heading",
+    ["Saga Timeline", "Branch Topology", "Strategic Quadrant", "Principle Map"],
 )
 def test_dashboard_has_section(dashboard_html: str, heading: str) -> None:
     assert heading in dashboard_html, f"missing section {heading!r}"

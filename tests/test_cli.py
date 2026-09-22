@@ -215,7 +215,8 @@ class TestReviewNorthStarLoading:
             _load_review_north_star(tmp_path, store, config, {}, env={})
 
     def test_linear_source_fetches_document_and_writes_snapshot(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         from guardian.cli import _load_review_north_star
         from guardian.linear import LinearDocumentSnapshot
@@ -227,9 +228,7 @@ class TestReviewNorthStarLoading:
             north_star={"source": "linear"},
             linear={"document_id": "doc-1"},
         )
-        content = _make_north_star().model_copy(
-            update={"project_name": "LinearPolicy"}
-        )
+        content = _make_north_star().model_copy(update={"project_name": "LinearPolicy"})
 
         fake_client = MagicMock()
         from guardian.north_star import render_north_star_markdown
@@ -292,8 +291,10 @@ class TestPreviewDashboard:
                     cli,
                     [
                         "preview-dashboard",
-                        "--output", str(output_file),
-                        "--repo-root", str(tmp_path),
+                        "--output",
+                        str(output_file),
+                        "--repo-root",
+                        str(tmp_path),
                     ],
                 )
         finally:
@@ -317,8 +318,10 @@ class TestPreviewDashboard:
                 cli,
                 [
                     "preview-dashboard",
-                    "--output", str(tmp_path / "out.html"),
-                    "--repo-root", str(tmp_path),
+                    "--output",
+                    str(tmp_path / "out.html"),
+                    "--repo-root",
+                    str(tmp_path),
                 ],
             )
 
@@ -385,7 +388,17 @@ class TestInterview:
             patch("guardian.cli.MemoryStore", return_value=mock_store),
             patch("guardian.cli.GitHubContext") as mock_ctx_cls,
             patch("guardian.cli.get_pr_diff", return_value="diff --git ..."),
-            patch("guardian.cli.get_pr_meta", return_value={"number": 42, "title": "Add feature", "body": "", "author": "dev", "base_sha": "abc", "head_sha": "def"}),
+            patch(
+                "guardian.cli.get_pr_meta",
+                return_value={
+                    "number": 42,
+                    "title": "Add feature",
+                    "body": "",
+                    "author": "dev",
+                    "base_sha": "abc",
+                    "head_sha": "def",
+                },
+            ),
             patch("guardian.cli._load_review_north_star", return_value=north_star),
             patch("guardian.cli._make_openai_client", return_value=MagicMock()),
             patch("guardian.cli._load_config", return_value=GuardianConfig()),

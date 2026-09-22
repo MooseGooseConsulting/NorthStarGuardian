@@ -527,3 +527,315 @@ def test_chronograph_cli_writes_recommendations_plan_and_audit(tmp_path: Path) -
     assert (chronograph_dir / "apply-plan.json").exists()
     assert (chronograph_dir / "audit.jsonl").exists()
     assert _RTK_INCLUDE_LINE in target.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage tests
+# ---------------------------------------------------------------------------
+
+
+def test_validate_target_relative_path_resolves_under_chronograph_root(
+    tmp_path: Path,
+) -> None:
+    """A relative path that resolves under the chronograph root is accepted."""
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    # The chronograph root is tmp_path/.guardian/chronograph; create a subdir
+    target_abs = policy.chronograph_root / "subdir" / "file.json"
+    target_abs.parent.mkdir(parents=True, exist_ok=True)
+    # Pass the relative form from repo root
+    rel = target_abs.relative_to(tmp_path)
+    resolved = policy.validate_target(str(rel))
+    assert resolved == target_abs.resolve()
+
+
+def test_validate_target_raises_outside_writable_roots(tmp_path: Path) -> None:
+    """A path outside all writable roots raises ValueError."""
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    outside = tmp_path.parent / "outside" / "file.txt"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("x", encoding="utf-8")
+    with pytest.raises(ValueError, match="outside writable roots"):
+        policy.validate_target(str(outside))
+
+
+def test_validate_target_live_root_non_allowlisted_raises(tmp_path: Path) -> None:
+    """A path under a live root that is not allowlisted raises ValueError."""
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    # live_roots includes ~/.codex; create a non-allowlisted file there
+    from pathlib import Path as P
+
+    codex_dir = P.home() / ".codex"
+    codex_dir.mkdir(exist_ok=True)
+    not_allowed = codex_dir / "not_allowed.bin"
+    not_allowed.write_bytes(b"x")
+    try:
+        with pytest.raises(ValueError, match="not allowlisted"):
+            policy.validate_target(str(not_allowed))
+    finally:
+        not_allowed.unlink(missing_ok=True)
+
+
+def test_recommend_actions_destructive_diff_produces_retire_action(
+    tmp_path: Path,
+) -> None:
+    """A diff where after is empty produces a RETIRE action."""
+    target = tmp_path / ".codex" / "AGENTS.md"
+    diff = ConfigDiff(
+        target_path=str(target),
+        before="Some config content.\n",
+        after="",  # empty after → destructive
+        summary="Config removed.",
+        source="memory-curation",
+        confidence=0.7,
+    )
+    actions = recommend_actions([diff])
+    assert len(actions) == 1
+    assert actions[0].action_class == ActionClass.RETIRE
+
+
+def test_unique_id_deduplication_appends_suffix() -> None:
+    """_unique_id appends -2, -3 … when the base slug is already used."""
+    from guardian.chronograph import _unique_id
+
+    used: set[str] = set()
+    id1 = _unique_id("my-action", used)
+    id2 = _unique_id("my-action", used)
+    id3 = _unique_id("my-action", used)
+    assert id1 == "my-action"
+    assert id2 == "my-action-2"
+    assert id3 == "my-action-3"
+
+
+def test_detect_missing_include_falls_back_to_summary_regex(tmp_path: Path) -> None:
+    """When no @ line is added, _detect_missing_include reads the summary."""
+    from guardian.chronograph import _detect_missing_include
+
+    include = "@" + str(Path.home() / ".codex" / "rtk.md")
+    result = _detect_missing_include(
+        before="same content",
+        after="same content",  # no new @ lines
+        summary=f"missing include {include}",
+    )
+    assert result == include
+
+
+def test_apply_plan_source_action_missing_is_skipped(tmp_path: Path) -> None:
+    """An apply plan item whose action_id is not in actions list is skipped."""
+    target, action, policy, plan = _make_rtk_repair_action(tmp_path)
+    # Pass empty actions list so the action_id lookup fails
+    results = apply_plan(plan, actions=[], policy=policy, now=NOW)
+    assert len(results) == 1
+    assert not results[0].applied
+    assert "missing" in (results[0].skipped_reason or "").lower()
+
+
+def test_apply_plan_new_file_creates_sentinel_backup(tmp_path: Path) -> None:
+    """When the target doesn't exist, apply_plan creates an empty sentinel backup."""
+    target = tmp_path / ".codex" / "AGENTS.md"
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    before = ""  # target doesn't exist yet
+    after = _RTK_INCLUDE_LINE + "\n"  # only add the known-safe include
+    action = StewardshipAction(
+        id="repair-new",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before=before,
+        after=after,
+        reason="New AGENTS.md with RTK include.",
+        confidence=0.96,
+        metadata={"operation": "add_missing_include", "include": _RTK_INCLUDE_LINE},
+    )
+    plan = build_apply_plan([action], policy=policy, now=NOW)
+    assert len(plan) == 1
+    assert plan[0].auto_apply is True
+    results = apply_plan(plan, actions=[action], policy=policy, now=NOW)
+    assert len(results) == 1
+    assert results[0].applied
+    backup = Path(results[0].backup_path)
+    assert backup.exists()
+    assert backup.read_text(encoding="utf-8") == ""
+
+
+def test_apply_plan_oserror_is_caught(tmp_path: Path) -> None:
+    """An OSError during write is caught and reported without crashing."""
+    import unittest.mock as mock
+
+    target, action, policy, plan = _make_rtk_repair_action(tmp_path)
+    with mock.patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+        results = apply_plan(plan, actions=[action], policy=policy, now=NOW)
+    assert len(results) == 1
+    result = results[0]
+    assert not result.applied
+    assert result.error is not None
+    assert "disk full" in result.error
+
+
+def test_load_model_list_missing_file_returns_empty(tmp_path: Path) -> None:
+    """_load_model_list returns [] when the file doesn't exist."""
+    from guardian.chronograph import StewardshipAction, _load_model_list
+
+    missing = tmp_path / "nonexistent.json"
+    assert _load_model_list(missing, StewardshipAction) == []
+
+
+def test_can_auto_apply_returns_false_for_propose_action(tmp_path: Path) -> None:
+    """_can_auto_apply returns False for PROPOSE actions."""
+    from guardian.chronograph import _can_auto_apply
+
+    target = tmp_path / ".codex" / "AGENTS.md"
+    action = StewardshipAction(
+        id="propose-1",
+        action_class=ActionClass.PROPOSE,
+        target_path=str(target),
+        before="",
+        after="new content",
+        reason="Proposed change.",
+        confidence=0.95,
+        metadata={"operation": "add_missing_include"},
+    )
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    assert not _can_auto_apply(action, policy)
+
+
+def test_adds_only_known_safe_include_empty_added_lines_returns_false() -> None:
+    """_adds_only_known_safe_include returns False when no lines are added."""
+    from guardian.chronograph import _adds_only_known_safe_include
+
+    result = _adds_only_known_safe_include("identical", "identical")
+    assert result is False
+
+
+def test_added_lines_returns_empty_when_before_has_extra_lines() -> None:
+    """_added_lines returns [] when before has lines absent from after."""
+    from guardian.chronograph import _added_lines
+
+    result = _added_lines(before="line1\nline2\nline3", after="line1\nline3")
+    assert result == []
+
+
+def test_restore_after_failure_removes_new_file(tmp_path: Path) -> None:
+    """_restore_after_failure removes a newly created target when it did not exist."""
+    from guardian.chronograph import _restore_after_failure
+
+    target = tmp_path / "new_file.txt"
+    target.write_text("written by apply", encoding="utf-8")
+    backup = tmp_path / "backup.bak"
+    _restore_after_failure(target, backup, existed=False)
+    assert not target.exists()
+
+
+def test_restore_after_failure_restores_from_backup(tmp_path: Path) -> None:
+    """_restore_after_failure copies backup back when target existed."""
+    from guardian.chronograph import _restore_after_failure
+
+    target = tmp_path / "target.txt"
+    target.write_text("corrupted", encoding="utf-8")
+    backup = tmp_path / "backup.bak"
+    backup.write_text("original", encoding="utf-8")
+    _restore_after_failure(target, backup, existed=True)
+    assert target.read_text(encoding="utf-8") == "original"
+
+
+def test_is_forbidden_path_returns_true_for_forbidden_part(tmp_path: Path) -> None:
+    """_is_forbidden_path returns True when a part matches a forbidden directory."""
+    from guardian.chronograph import _is_forbidden_path
+
+    parts = ["home", "user", ".cache", "some_app", "file.json"]
+    assert _is_forbidden_path([p.lower() for p in parts], "file.json") is True
+
+
+def test_is_allowed_live_file_returns_false_for_unknown_extension(
+    tmp_path: Path,
+) -> None:
+    """_is_allowed_live_file returns False for an unlisted file type."""
+    from guardian.chronograph import _is_allowed_live_file
+
+    target = tmp_path / "somefile.xyz"
+    assert not _is_allowed_live_file(target)
+
+
+def _make_rtk_repair_action_changed(
+    tmp_path: Path,
+    *,
+    change: str = "target_path",
+) -> tuple[StewardshipAction, ChronographSafetyPolicy, list]:
+    """Build a valid plan but return a modified action to trigger _plan_action_mismatch."""
+    target, action, policy, plan = _make_rtk_repair_action(tmp_path)
+    if change == "target_path":
+        other_target = tmp_path / ".codex" / "claude.md"
+        other_target.write_text(action.before, encoding="utf-8")
+        modified = action.model_copy(update={"target_path": str(other_target)})
+    elif change == "action_class":
+        modified = action.model_copy(update={"action_class": ActionClass.PROPOSE})
+    elif change == "hashes":
+        modified = action.model_copy(update={"before": "tampered-before-content\n"})
+    elif change == "destructive":
+        modified = action.model_copy(update={"destructive": True})
+    else:
+        modified = action
+    return modified, policy, plan
+
+
+def test_apply_plan_mismatch_target_path_is_skipped(tmp_path: Path) -> None:
+    """_plan_action_mismatch skips when action.target_path != plan.target_path."""
+    modified, policy, plan = _make_rtk_repair_action_changed(tmp_path, change="target_path")
+    results = apply_plan(plan, actions=[modified], policy=policy, now=NOW)
+    assert len(results) == 1
+    assert not results[0].applied
+    assert results[0].skipped_reason is not None
+
+
+def test_apply_plan_mismatch_action_class_is_skipped(tmp_path: Path) -> None:
+    """_plan_action_mismatch skips when action.action_class != plan.action_class."""
+    modified, policy, plan = _make_rtk_repair_action_changed(tmp_path, change="action_class")
+    results = apply_plan(plan, actions=[modified], policy=policy, now=NOW)
+    assert len(results) == 1
+    assert not results[0].applied
+    assert results[0].skipped_reason is not None
+
+
+def test_apply_plan_mismatch_hashes_is_skipped(tmp_path: Path) -> None:
+    """_plan_action_mismatch skips when action hashes don't match plan hashes."""
+    modified, policy, plan = _make_rtk_repair_action_changed(tmp_path, change="hashes")
+    results = apply_plan(plan, actions=[modified], policy=policy, now=NOW)
+    assert len(results) == 1
+    assert not results[0].applied
+    assert results[0].skipped_reason is not None
+
+
+def test_apply_plan_mismatch_destructive_flag_is_skipped(tmp_path: Path) -> None:
+    """_plan_action_mismatch skips when action.destructive != plan.destructive."""
+    modified, policy, plan = _make_rtk_repair_action_changed(tmp_path, change="destructive")
+    results = apply_plan(plan, actions=[modified], policy=policy, now=NOW)
+    assert len(results) == 1
+    assert not results[0].applied
+    assert results[0].skipped_reason is not None
+
+
+def test_apply_plan_mismatch_backup_path_is_skipped(tmp_path: Path) -> None:
+    """_plan_action_mismatch skips when backup_path doesn't match expected."""
+    target, action, policy, plan = _make_rtk_repair_action(tmp_path)
+    # Change backup_path to a valid-looking path under backup_root but wrong action ID
+    original = Path(plan[0].backup_path)
+    # Replace the action-id segment (3rd component from backup_root) with 'wrong-id'
+    wrong_backup = (
+        policy.backup_root
+        / original.relative_to(policy.backup_root).parts[0]  # timestamp
+        / "wrong-action-id"
+        / "AGENTS.md"
+    )
+    tampered = [plan[0].model_copy(update={"backup_path": str(wrong_backup)})]
+    results = apply_plan(tampered, actions=[action], policy=policy, now=NOW)
+    assert len(results) == 1
+    assert not results[0].applied
+    assert results[0].skipped_reason is not None
+
+
+def test_apply_plan_mismatch_rollback_command_is_skipped(tmp_path: Path) -> None:
+    """_plan_action_mismatch skips when rollback_command doesn't match expected."""
+    target, action, policy, plan = _make_rtk_repair_action(tmp_path)
+    tampered = [plan[0].model_copy(update={"rollback_command": "echo tampered"})]
+    results = apply_plan(tampered, actions=[action], policy=policy, now=NOW)
+    assert len(results) == 1
+    assert not results[0].applied
+    assert results[0].skipped_reason is not None

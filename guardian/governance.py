@@ -128,17 +128,6 @@ def _timer_to_dict(timer: DebtTimer) -> dict[str, Any]:
     }
 
 
-def _drift_from_dict(d: dict[str, Any]) -> DriftEvent:
-    return DriftEvent(
-        id=d["id"],
-        pr_number=int(d["pr_number"]),
-        principle_id=str(d["principle_id"]),
-        severity=DriftSeverity(d["severity"]),
-        details=str(d["details"]),
-        timestamp=_ensure_aware(datetime.fromisoformat(d["timestamp"])),
-    )
-
-
 def _drift_to_dict(event: DriftEvent) -> dict[str, Any]:
     return {
         "id": event.id,
@@ -407,9 +396,7 @@ def escalate_debt_result(
         ``BLOCKING`` **and** ``config.enable_blocking_escalation`` is ``True``.
     """
     timer = escalate_debt(store, debt_id, new_level=new_level, config=config)
-    blocks_pr = (
-        new_level == DebtLevel.BLOCKING and config.enable_blocking_escalation
-    )
+    blocks_pr = new_level == DebtLevel.BLOCKING and config.enable_blocking_escalation
     return timer, blocks_pr
 
 
