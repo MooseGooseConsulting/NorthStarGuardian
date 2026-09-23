@@ -13,7 +13,7 @@ jobs:
   interview:
     name: PR Interview
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event.pull_request.head.repo.fork || vars.CI_FORCE_HOSTED == 'true') && 'ubuntu-latest' || 'moosegoose-linux' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
