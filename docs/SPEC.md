@@ -72,18 +72,14 @@ Guardian may use Linear issues for concrete follow-ups such as policy amendment 
 ## 5. PR Interview Flow
 
 1. GitHub Actions runs `guardian interview` for PR events.
-2. Guardian initializes `.github/guardian/`.
-3. Guardian loads `guardian-config.json`, then creates the OpenAI client.
-4. Guardian reads PR diff and metadata.
-5. Guardian loads the review North Star:
-   - repo source: read `docs/northstar.md` from the PR base SHA
-   - Linear source: read the committed active snapshot from the PR base SHA; trusted slash-command runs can refresh it from the configured Linear document
-6. Guardian writes the active copy and snapshot metadata.
-7. Guardian analyzes the diff structurally.
-8. Guardian runs OpenAI-backed intent, alignment, anti-pattern, and chronicle prompts.
-9. Guardian assigns or updates a saga and writes a journal entry.
-10. Guardian regenerates `.github/guardian/memory/dashboard.html`.
-11. Guardian posts the interview report as a PR comment.
+2. Guardian reads the PR metadata and loads both `guardian-config.json` and the review North Star from the PR base SHA, so a PR cannot redirect the policy used for its own review.
+3. Guardian reads PR diff and file metadata. Files without a text patch remain in the structural context with their path and change counts, but are marked as unavailable for text review.
+4. Guardian runs OpenAI-backed intent, alignment, anti-pattern, and chronicle prompts.
+5. In a persistent local checkout, Guardian updates the active-copy snapshot, assigns or updates a saga, writes a journal entry, records drift and debt, and regenerates `.github/guardian/memory/dashboard.html`.
+6. In GitHub Actions, the checkout is ephemeral and Guardian skips those state mutations. The workflow posts the interview report, but does not claim that state was saved between runs.
+7. Guardian posts the interview report as a PR comment.
+   - repo source: read the configured repo North Star from the PR base SHA
+   - Linear source: read the committed active snapshot from the PR base SHA
 
 ## 6. Slash Commands
 
@@ -116,6 +112,8 @@ Important fields:
 - `variance_default_days`: default duration for declared variance debt
 - `enable_blocking_escalation`: defaults to `false`
 - `pages_url`: optional direct dashboard URL
+
+The active-copy path must remain inside `.github/guardian/`. In ephemeral GitHub Actions runs, `/re-anchor`, `/amend`, `/dashboard`, `sweep-debt`, `init-local`, and `preview-dashboard` report that they were skipped because no durable state backend is configured. Run state-mutating commands from a persistent checkout.
 
 ## 8. Invariants
 

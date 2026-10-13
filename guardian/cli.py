@@ -8,6 +8,7 @@ lives in the imported modules; this file is only orchestration and I/O.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 from datetime import UTC, datetime
@@ -22,6 +23,7 @@ from guardian.memory import MemoryStore
 from guardian.models import GuardianConfig
 from guardian.north_star import (
     amend_north_star,
+    active_copy_store_path,
     initialize_north_star,
     parse_north_star_markdown,
     read_north_star,
@@ -37,8 +39,34 @@ from guardian.north_star import (
 _CONFIG_PATH = "guardian-config.json"
 
 
-def _load_config(store: MemoryStore) -> GuardianConfig:
+def _load_config(
+    store: MemoryStore,
+    *,
+    repo_root: Path | None = None,
+    ref: str | None = None,
+) -> GuardianConfig:
     """Read GuardianConfig from .github/guardian, defaulting if absent."""
+    if ref and repo_root:
+        try:
+            raw_text = read_repo_north_star_markdown(
+                repo_root,
+                path=".github/guardian/guardian-config.json",
+                ref=ref,
+            )
+            raw = json.loads(raw_text)
+        except FileNotFoundError:
+            return GuardianConfig()
+        except Exception as exc:
+            raise click.ClickException(
+                f"Failed to load base-branch config '{_CONFIG_PATH}': {exc}"
+            ) from exc
+        try:
+            return GuardianConfig(**raw)
+        except Exception as exc:
+            raise click.ClickException(
+                f"Failed to load base-branch config '{_CONFIG_PATH}': {exc}"
+            ) from exc
+
     if store.exists(_CONFIG_PATH):
         try:
             raw = store.read_json(_CONFIG_PATH)
@@ -48,6 +76,18 @@ def _load_config(store: MemoryStore) -> GuardianConfig:
     return GuardianConfig()
 
 
+def _active_copy_path(config: GuardianConfig) -> str:
+    try:
+        return active_copy_store_path(config.north_star.active_copy_path)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _is_ephemeral_ci() -> bool:
+    """Return whether this process runs in a GitHub-hosted ephemeral checkout."""
+    return os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+
+
 def _load_review_north_star(
     root: Path,
     store: MemoryStore,
@@ -55,8 +95,9 @@ def _load_review_north_star(
     pr_meta: dict[str, Any],
     *,
     env: dict[str, str] | None = None,
+    persist: bool = True,
 ) -> Any:
-    """Load the North Star snapshot for a review run and persist active copy."""
+    """Load the pinned review policy and optionally update the active copy."""
     environ = env if env is not None else os.environ
     _GUARDIAN_PREFIX = ".github/guardian/"
     _active = config.north_star.active_copy_path or ".github/guardian/northstar.md"
@@ -74,7 +115,7 @@ def _load_review_north_star(
                 "Guardian is configured for Linear North Star source but "
                 "linear.document_id is not set."
             )
-        api_key = environ.get("LINEAR_API_KEY")
+        api_key = environ.get("LINEAR_API_KEY") if persist else None
         if not api_key:
             # PR workflows run code from the PR checkout. Use the active copy
             # pinned in the base commit instead of exposing a Linear secret to
@@ -92,18 +133,19 @@ def _load_review_north_star(
                     "snapshot exists at the PR base. Refresh and commit the active copy "
                     "from a trusted run."
                 ) from exc
-            store.write("northstar.md", content)
-            store.write_json(
-                "memory/northstar-snapshot.json",
-                {
-                    "source": "linear",
-                    "path": config.north_star.active_copy_path,
-                    "ref": ref,
-                    "fetched_at": datetime.now(tz=UTC).isoformat(),
-                    "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-                    "snapshot_source": "committed active copy",
-                },
-            )
+            if persist:
+                store.write(active_path, content)
+                store.write_json(
+                    "memory/northstar-snapshot.json",
+                    {
+                        "source": "linear",
+                        "path": config.north_star.active_copy_path,
+                        "ref": ref,
+                        "fetched_at": datetime.now(tz=UTC).isoformat(),
+                        "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                        "snapshot_source": "committed active copy",
+                    },
+                )
             return parse_north_star_markdown(content)
 
         snapshot = LinearClient(api_key).fetch_document(config.linear.document_id)
@@ -313,10 +355,9 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
 
     root = Path(repo_root or ".").resolve()
     store = MemoryStore(root)
-    store.ensure_initialized()
-
-    config = _load_config(store)
-    client = _make_openai_client()
+    persist_state = not _is_ephemeral_ci()
+    if persist_state:
+        store.ensure_initialized()
 
     # Build GitHub context.
     ctx = GitHubContext.from_env(event_path=event_path)
@@ -325,15 +366,35 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
 
     click.echo(f"Guardian: interviewing PR #{ctx.pr.number}")
 
-    # 1. Read diff and metadata.
-    diff = get_pr_diff(ctx)
+    # Pin both policy and runtime configuration to the PR base so the PR cannot
+    # redirect its own review by changing guardian-config.json.
     meta = get_pr_meta(ctx)
+    config = _load_config(store, repo_root=root, ref=meta.get("base_sha"))
+    client = _make_openai_client()
+
+    # Fetch file metadata once. GitHub omits patches for binary/large files,
+    # but their paths and change counts still belong in the interview context.
+    pr_files = list(ctx.pr.get_files())
+    diff = get_pr_diff(ctx, files=pr_files)
+    patchless_files = [
+        {
+            "path": file.filename,
+            "status": file.status,
+            "additions": file.additions,
+            "deletions": file.deletions,
+        }
+        for file in pr_files
+        if not file.patch
+    ]
 
     # 2. Analyze diff (pre-LLM structural extraction).
-    diff_analysis = analyze.analyze_diff(diff, meta)
+    diff_analysis = analyze.analyze_diff(diff, meta, patchless_files=patchless_files)
 
-    # 3. Load the base-branch/Linear North Star and persist Guardian's active copy.
-    north_star = _load_review_north_star(root, store, config, meta)
+    # 3. Load the policy pinned to the base. GitHub-hosted checkouts are
+    # ephemeral, so review runs there must not claim repo-native state persisted.
+    north_star = _load_review_north_star(
+        root, store, config, meta, persist=persist_state
+    )
 
     # 4. Run LLM interview.
     report = analyze.run_interview(
@@ -344,23 +405,27 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         pr_meta=meta,
     )
 
-    # 5. Load existing sagas and assign the saga for this PR.
-    # _load_saga_index and _saga_from_index_entry are module-internal helpers;
-    # accessing them is acceptable here since cli.py is a first-party sibling.
-    saga_index = chronicle._load_saga_index(store)
-    all_sagas = [chronicle._saga_from_index_entry(entry) for entry in saga_index.get("sagas", [])]
-    saga = chronicle.assign_saga(
-        store,
-        report.intent,
-        all_sagas,
-        client=client,
-        model=config.openai_model_analysis,
-    )
-    chronicle.update_saga(store, saga, report.pr_number)
-    report = report.model_copy(update={"saga_id": saga.id})
+    if persist_state:
+        # 5. Load existing sagas and assign the saga for this PR.
+        # _load_saga_index and _saga_from_index_entry are module-internal helpers;
+        # accessing them is acceptable here since cli.py is a first-party sibling.
+        saga_index = chronicle._load_saga_index(store)
+        all_sagas = [
+            chronicle._saga_from_index_entry(entry)
+            for entry in saga_index.get("sagas", [])
+        ]
+        saga = chronicle.assign_saga(
+            store,
+            report.intent,
+            all_sagas,
+            client=client,
+            model=config.openai_model_analysis,
+        )
+        chronicle.update_saga(store, saga, report.pr_number)
+        report = report.model_copy(update={"saga_id": saga.id})
 
-    # 6. Write journal entry.
-    chronicle.write_journal_entry(store, report, saga)
+        # 6. Write journal entry.
+        chronicle.write_journal_entry(store, report, saga)
 
     # 7. Render dashboard.
     dashboard.render_dashboard(store, north_star)
@@ -372,6 +437,13 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
 
     # 9. Post report as a PR comment.
     comment_body = _format_report_comment(report, config)
+    if not persist_state:
+        comment_body += (
+            "\n\n---\n"
+            "**State note:** This GitHub Actions run evaluated the PR and posted this "
+            "comment, but its ephemeral checkout did not save saga, journal, drift, "
+            "debt-timer, dashboard, or active-copy changes."
+        )
     post_pr_comment(ctx, comment_body)
 
     click.echo(f"Guardian: interview complete — verdict: {report.overall_verdict.value}")
@@ -411,9 +483,6 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
     cmd, args = parsed
     click.echo(f"Guardian: dispatching /{cmd} with args {args!r}")
 
-    store.ensure_initialized()
-    config = _load_config(store)
-
     handlers: dict[str, Any] = {
         "init-guardian": _handle_init_guardian,
         "re-anchor": _handle_re_anchor,
@@ -422,6 +491,21 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
         "dashboard": _handle_dashboard,
         "status": _handle_status,
     }
+
+    if _is_ephemeral_ci() and cmd in {"re-anchor", "amend", "dashboard"}:
+        reply = (
+            "Guardian: this command can mutate Guardian state, but GitHub Actions "
+            "uses an ephemeral checkout with no durable state backend configured. "
+            "Run it in a persistent checkout to apply the change."
+        )
+        if ctx.pr:
+            post_pr_comment(ctx, reply)
+        else:
+            click.echo(reply)
+        return
+
+    store.ensure_initialized()
+    config = _load_config(store)
 
     handler = handlers.get(cmd)
     if handler is None:
@@ -539,6 +623,7 @@ def _handle_amend(
                 after=new_text,
                 rationale=f"Amended via /amend slash command by @{actor}",
                 actor=actor,
+                path=_active_copy_path(config),
             )
             with store.session(f"guardian: amend principle {target_id} via slash command"):
                 pass
@@ -598,7 +683,7 @@ def _handle_dashboard(
     from guardian import dashboard
 
     try:
-        north_star = read_north_star(store)
+        north_star = read_north_star(store, path=_active_copy_path(config))
         dashboard.render_dashboard(store, north_star)
         with store.session("guardian: regenerate dashboard via /dashboard command"):
             pass
@@ -691,6 +776,13 @@ def sweep_debt(repo_root: str | None) -> None:
     """Scheduled job: check debt timers and escalate expired ones."""
     from guardian import governance
 
+    if _is_ephemeral_ci():
+        click.echo(
+            "Guardian sweep-debt: skipped because GitHub Actions uses an ephemeral "
+            "checkout and no durable state backend is configured."
+        )
+        return
+
     root = Path(repo_root or ".").resolve()
     store = MemoryStore(root)
     store.ensure_initialized()
@@ -765,6 +857,12 @@ def sweep_debt(repo_root: str | None) -> None:
 )
 def init_local(repo_root: str) -> None:
     """Interactive setup: walk through North Star initialization locally."""
+    if _is_ephemeral_ci():
+        raise click.ClickException(
+            "guardian init-local cannot persist changes from an ephemeral GitHub "
+            "Actions checkout; run it in a persistent checkout."
+        )
+
     root = Path(repo_root).resolve()
     store = MemoryStore(root)
 
@@ -872,14 +970,20 @@ def preview_dashboard(output: str, repo_root: str) -> None:
 
     root = Path(repo_root).resolve()
     store = MemoryStore(root)
+    if _is_ephemeral_ci():
+        raise click.ClickException(
+            "guardian preview-dashboard cannot preserve its output from an ephemeral "
+            "GitHub Actions checkout; run it in a persistent checkout."
+        )
     store.ensure_initialized()
 
+    config = _load_config(store)
     try:
-        north_star = read_north_star(store)
+        north_star = read_north_star(store, path=_active_copy_path(config))
     except FileNotFoundError as err:
         raise click.ClickException(
             "No Guardian active North Star found at "
-            "`.github/guardian/northstar.md`. Run `guardian init-local` first."
+            f"`{config.north_star.active_copy_path}`. Run `guardian init-local` first."
         ) from err
 
     html = dashboard.render_dashboard(store, north_star)

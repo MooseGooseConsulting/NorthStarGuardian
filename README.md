@@ -19,8 +19,8 @@ Pre-alpha. The core pipeline is covered by tests against synthetic PR fixtures: 
 
 - Reads the base-branch North Star so a PR cannot review itself against modified rules.
 - If configured for Linear, reviews against the active snapshot committed on the base branch. Trusted slash-command runs can refresh it from Linear, normalize it, hash it, and record the exact snapshot used for review.
-- Posts an interview report as a PR comment: alignment summary, relevant principle verdicts, saga assignment, suggestions, and chronicle paragraph.
-- Writes Guardian-owned state under `.github/guardian/memory/`, including journal entries, sagas, drift/debt records, and the generated dashboard. A local run leaves these files in the checkout; GitHub-hosted runs use ephemeral checkouts, so state is not retained between runs unless a workflow configures durable storage.
+- Posts an interview report as a PR comment with the alignment summary, relevant principle verdicts, suggestions, and chronicle paragraph. Persistent local runs also assign a saga; ephemeral GitHub Actions runs skip repo-native state mutations.
+- Persistent local runs write Guardian-owned state under `.github/guardian/memory/`, including journal entries, sagas, drift/debt records, and the generated dashboard. GitHub-hosted Actions runs use ephemeral checkouts and skip these mutations; use a persistent checkout to record state.
 - Creates Linear follow-up issues for Linear-backed policy amendment requests.
 
 ## Repo Layout
@@ -60,7 +60,7 @@ While Guardian is designed to be triggered via GitHub Actions, the CLI can be ru
 |---|---|
 | `guardian interview` | Triggered by `pull_request` events to analyze diff and post comments. |
 | `guardian command` | Triggered by `issue_comment` events to handle slash commands. |
-| `guardian sweep-debt` | Scheduled job to check debt timers and escalate expired ones. |
+| `guardian sweep-debt` | Checks debt timers and escalates them in a persistent checkout; GitHub Actions runs skip mutations because their checkouts are ephemeral. |
 | `guardian preview-dashboard` | Local dev: render the dashboard to a local HTML file. |
 
 ## Configuration

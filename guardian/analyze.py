@@ -101,7 +101,11 @@ _VARIANCE_PRINC_RE = re.compile(r"^([A-Za-z0-9_\-\.]+)")
 # ---------------------------------------------------------------------------
 
 
-def analyze_diff(unified_diff: str, pr_meta: dict[str, Any]) -> DiffAnalysis:
+def analyze_diff(
+    unified_diff: str,
+    pr_meta: dict[str, Any],
+    patchless_files: list[dict[str, Any]] | None = None,
+) -> DiffAnalysis:
     """Parse *unified_diff* and extract structural information.
 
     Parameters
@@ -175,6 +179,28 @@ def analyze_diff(unified_diff: str, pr_meta: dict[str, Any]) -> DiffAnalysis:
                 name = _extract_dep_name(line)
                 if name:
                     new_packages.append(name)
+
+    known_paths = {file_change.path for file_change in file_changes}
+    for file_meta in patchless_files or []:
+        path = str(file_meta.get("path") or "")
+        if not path or path in known_paths:
+            continue
+        raw_status = file_meta.get("status")
+        status = (
+            raw_status
+            if raw_status in {"added", "modified", "removed", "renamed"}
+            else "modified"
+        )
+        file_changes.append(
+            FileChange(
+                path=path,
+                status=status,
+                additions=int(file_meta.get("additions") or 0),
+                deletions=int(file_meta.get("deletions") or 0),
+                patch_available=False,
+            )
+        )
+        known_paths.add(path)
 
     total_additions = sum(f.additions for f in file_changes)
     total_deletions = sum(f.deletions for f in file_changes)

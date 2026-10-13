@@ -91,6 +91,7 @@ class FileChange(BaseModel):
     deletions: int
     new_imports: list[str] = Field(default_factory=list)
     removed_imports: list[str] = Field(default_factory=list)
+    patch_available: bool = True
 
 
 class DiffAnalysis(BaseModel):
