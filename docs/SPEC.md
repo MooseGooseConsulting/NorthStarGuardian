@@ -22,7 +22,7 @@ Guardian also maintains an active copy:
 .github/guardian/northstar.md
 ```
 
-The active copy is the exact policy body Guardian used or refreshed. PR review reads the base-branch version of the repo source so a PR cannot modify its own review rules. When Linear is configured as the canonical surface, Guardian fetches the configured Linear document, normalizes it, hashes it, and writes the fetched content to the active copy before review.
+The active copy is the exact policy body Guardian used or refreshed. PR review reads the base-branch version of the repo source so a PR cannot modify its own review rules. When Linear is canonical, trusted `/re-anchor` runs in a persistent checkout can fetch the configured document, normalize and hash it, then write it to the active copy. PR interviews instead use the active copy committed at the PR base SHA.
 
 ## 3. Guardian State
 
@@ -54,7 +54,7 @@ mechanism.
 
 Linear is the first external planning and memory integration.
 
-When `north_star.source` is `"linear"`, Guardian fetches `linear.document_id` through Linear's GraphQL API using `LINEAR_API_KEY`. The snapshot recorded at `.github/guardian/memory/northstar-snapshot.json` includes:
+When `north_star.source` is `"linear"`, trusted persistent `/re-anchor` runs can fetch `linear.document_id` through Linear's GraphQL API using `LINEAR_API_KEY`. PR interviews do not receive that secret and use the active copy committed at the PR base SHA. The snapshot recorded at `.github/guardian/memory/northstar-snapshot.json` includes:
 
 - provider
 - document ID
@@ -79,18 +79,20 @@ Guardian may use Linear issues for concrete follow-ups such as policy amendment 
 6. In GitHub Actions, the checkout is ephemeral and Guardian skips those state mutations. The workflow posts the interview report, but does not claim that state was saved between runs.
 7. Guardian posts the interview report as a PR comment.
    - repo source: read the configured repo North Star from the PR base SHA
-   - Linear source: read the committed active snapshot from the PR base SHA
+   - Linear source: read the committed active snapshot from the PR base SHA; a trusted local `/re-anchor` may fetch the current Linear document
 
 ## 6. Slash Commands
 
 | Command | Behavior |
 |---|---|
 | `/init-guardian` | Provides setup instructions for `docs/northstar.md` and `.github/guardian/` |
-| `/re-anchor` | Shows the current active copy and points operators to the configured source |
-| `/amend` | Repo-backed: update active copy; Linear-backed: create a Linear amendment issue |
+| `/re-anchor` | Refreshes the active copy from its configured source and shows a summary |
+| `/amend` | Repo-backed: update the configured repo source and active copy; Linear-backed: create a Linear amendment issue |
 | `/chronicle` | Posts recent journal entries |
 | `/dashboard` | Regenerates the local dashboard artifact |
 | `/status` | Summarizes active debt timers and last interview |
+
+The GitHub Actions slash-command job is limited to issue comments from repository owners, members, and collaborators. This restriction applies before the workflow exposes `LINEAR_API_KEY` for Linear-backed `/amend` requests.
 
 ## 7. Configuration
 
@@ -113,7 +115,7 @@ Important fields:
 - `enable_blocking_escalation`: defaults to `false`
 - `pages_url`: optional direct dashboard URL
 
-The active-copy path must remain inside `.github/guardian/`. In ephemeral GitHub Actions runs, `/re-anchor`, `/amend`, `/dashboard`, `sweep-debt`, `init-local`, and `preview-dashboard` report that they were skipped because no durable state backend is configured. Run state-mutating commands from a persistent checkout.
+The active-copy path must remain inside `.github/guardian/`. In ephemeral GitHub Actions runs, `/re-anchor`, repo-backed `/amend`, and `/dashboard` report that they cannot mutate Guardian state because no durable state backend is configured. Linear-backed `/amend` is allowed only for repository owners, members, and collaborators; it creates a Linear issue without writing checkout state. `sweep-debt` reports that it was skipped, while `init-local` and `preview-dashboard` reject the run because they cannot persist changes or output. Run state-mutating commands from a persistent checkout.
 
 ## 8. Invariants
 

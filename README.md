@@ -18,7 +18,7 @@ Pre-alpha. The core pipeline is covered by tests against synthetic PR fixtures: 
 ## What It Does On Every PR
 
 - Reads the base-branch North Star so a PR cannot review itself against modified rules.
-- If configured for Linear, reviews against the active snapshot committed on the base branch. Trusted slash-command runs can refresh it from Linear, normalize it, hash it, and record the exact snapshot used for review.
+- If configured for Linear, PR reviews use the active snapshot committed on the base branch. A trusted `/re-anchor` in a persistent checkout can refresh it from Linear.
 - Posts an interview report as a PR comment with the alignment summary, relevant principle verdicts, suggestions, and chronicle paragraph. Persistent local runs also assign a saga; ephemeral GitHub Actions runs skip repo-native state mutations.
 - Persistent local runs write Guardian-owned state under `.github/guardian/memory/`, including journal entries, sagas, drift/debt records, and the generated dashboard. GitHub-hosted Actions runs use ephemeral checkouts and skip these mutations; use a persistent checkout to record state.
 - Creates Linear follow-up issues for Linear-backed policy amendment requests.
@@ -46,8 +46,8 @@ docs/
 | Command | Purpose |
 |---|---|
 | `/init-guardian` | First-time setup instructions for `docs/northstar.md` and `.github/guardian/` |
-| `/re-anchor` | Show the current active copy and point operators to the configured source |
-| `/amend [principle]` | Repo-backed: update the active copy; Linear-backed: create a Linear amendment issue |
+| `/re-anchor` | Refresh the active copy from its configured source and show a summary |
+| `/amend [principle]` | Repo-backed: update the configured repo source and active copy; Linear-backed: create a Linear amendment issue |
 | `/chronicle` | View recent Guardian journal entries |
 | `/dashboard` | Regenerate `.github/guardian/memory/dashboard.html` |
 | `/status` | Quick health check: active debt timers and last interview |
@@ -55,6 +55,8 @@ docs/
 ## Automation
 
 While Guardian is designed to be triggered via GitHub Actions, the CLI can be run manually or as scheduled jobs.
+
+In GitHub Actions, the slash-command job runs only for comments from repository owners, members, or collaborators. Linear-backed `/amend` can create an issue for those users; repo-backed state changes remain disabled in ephemeral checkouts.
 
 | CLI Command | Purpose |
 |---|---|

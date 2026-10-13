@@ -27,6 +27,7 @@ from guardian.north_star import (
     initialize_north_star,
     parse_north_star_markdown,
     read_north_star,
+    read_repo_file_at_ref,
     read_repo_north_star_markdown,
     write_north_star,
     write_repo_north_star,
@@ -48,10 +49,8 @@ def _load_config(
     """Read GuardianConfig from .github/guardian, defaulting if absent."""
     if ref and repo_root:
         try:
-            raw_text = read_repo_north_star_markdown(
-                repo_root,
-                path=".github/guardian/guardian-config.json",
-                ref=ref,
+            raw_text = read_repo_file_at_ref(
+                repo_root, path=".github/guardian/guardian-config.json", ref=ref
             )
             raw = json.loads(raw_text)
         except FileNotFoundError:
@@ -88,6 +87,14 @@ def _is_ephemeral_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
 
 
+def _is_trusted_commenter(ctx: GitHubContext) -> bool:
+    """Restrict secret-backed slash commands to repository collaborators."""
+    association = str(
+        ctx.event_payload.get("comment", {}).get("author_association", "")
+    ).upper()
+    return association in {"OWNER", "MEMBER", "COLLABORATOR"}
+
+
 def _load_review_north_star(
     root: Path,
     store: MemoryStore,
@@ -96,6 +103,7 @@ def _load_review_north_star(
     *,
     env: dict[str, str] | None = None,
     persist: bool = True,
+    allow_linear_refresh: bool | None = None,
 ) -> Any:
     """Load the pinned review policy and optionally update the active copy."""
     environ = env if env is not None else os.environ
@@ -115,11 +123,15 @@ def _load_review_north_star(
                 "Guardian is configured for Linear North Star source but "
                 "linear.document_id is not set."
             )
-        api_key = environ.get("LINEAR_API_KEY") if persist else None
+        can_refresh = (
+            allow_linear_refresh
+            if allow_linear_refresh is not None
+            else not bool(pr_meta.get("base_sha"))
+        )
+        api_key = environ.get("LINEAR_API_KEY") if persist and can_refresh else None
         if not api_key:
-            # PR workflows run code from the PR checkout. Use the active copy
-            # pinned in the base commit instead of exposing a Linear secret to
-            # that code path.
+            # Reviews always use the committed active snapshot at the base
+            # commit. Only an explicit trusted re-anchor may fetch live policy.
             ref = pr_meta.get("base_sha") or None
             try:
                 content = read_repo_north_star_markdown(
@@ -393,7 +405,12 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     # 3. Load the policy pinned to the base. GitHub-hosted checkouts are
     # ephemeral, so review runs there must not claim repo-native state persisted.
     north_star = _load_review_north_star(
-        root, store, config, meta, persist=persist_state
+        root,
+        store,
+        config,
+        meta,
+        persist=persist_state,
+        allow_linear_refresh=False,
     )
 
     # 4. Run LLM interview.
@@ -492,7 +509,7 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
         "status": _handle_status,
     }
 
-    if _is_ephemeral_ci() and cmd in {"re-anchor", "amend", "dashboard"}:
+    if _is_ephemeral_ci() and cmd in {"re-anchor", "dashboard"}:
         reply = (
             "Guardian: this command can mutate Guardian state, but GitHub Actions "
             "uses an ephemeral checkout with no durable state backend configured. "
@@ -503,9 +520,32 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
         else:
             click.echo(reply)
         return
+    if _is_ephemeral_ci() and cmd == "amend" and not _is_trusted_commenter(ctx):
+        reply = "Guardian: `/amend` is available in GitHub Actions only to repository collaborators."
+        if ctx.pr:
+            post_pr_comment(ctx, reply)
+        else:
+            click.echo(reply)
+        return
 
     store.ensure_initialized()
     config = _load_config(store)
+
+    if (
+        _is_ephemeral_ci()
+        and cmd == "amend"
+        and config.north_star.source != "linear"
+    ):
+        reply = (
+            "Guardian: repo-backed `/amend` changes a checkout file, but GitHub "
+            "Actions uses an ephemeral checkout with no durable state backend. "
+            "Run it in a persistent checkout to apply the change."
+        )
+        if ctx.pr:
+            post_pr_comment(ctx, reply)
+        else:
+            click.echo(reply)
+        return
 
     handler = handlers.get(cmd)
     if handler is None:
@@ -623,11 +663,30 @@ def _handle_amend(
                 after=new_text,
                 rationale=f"Amended via /amend slash command by @{actor}",
                 actor=actor,
-                path=_active_copy_path(config),
+                **(
+                    {"path": _active_copy_path(config)}
+                    if config.north_star.active_copy_path
+                    != ".github/guardian/northstar.md"
+                    else {}
+                ),
             )
+            if config.north_star.source == "repo":
+                repo_root = getattr(store, "repo_root", None)
+                if isinstance(repo_root, Path):
+                    if config.north_star.repo_path == "docs/northstar.md":
+                        write_repo_north_star(repo_root, updated)
+                    else:
+                        write_repo_north_star(
+                            repo_root, updated, path=config.north_star.repo_path
+                        )
             with store.session(f"guardian: amend principle {target_id} via slash command"):
                 pass
 
+            repo_source_note = (
+                f" It also updates the repo-backed source `{config.north_star.repo_path}`."
+                if config.north_star.source == "repo"
+                else ""
+            )
             reply = (
                 f"## Guardian Amendment Applied\n\n"
                 f"**Principle `{target_id}`** updated to:\n\n"
@@ -928,8 +987,23 @@ def init_local(repo_root: str) -> None:
 
     click.echo("\nInitializing .github/guardian state...")
     store.ensure_initialized()
-    write_repo_north_star(root, north_star)
-    write_north_star(store, north_star, rationale="Initial North Star via init-local")
+    config = _load_config(store)
+    active_path = _active_copy_path(config)
+    if config.north_star.repo_path == "docs/northstar.md":
+        write_repo_north_star(root, north_star)
+    else:
+        write_repo_north_star(root, north_star, path=config.north_star.repo_path)
+    if config.north_star.active_copy_path == ".github/guardian/northstar.md":
+        write_north_star(
+            store, north_star, rationale="Initial North Star via init-local"
+        )
+    else:
+        write_north_star(
+            store,
+            north_star,
+            rationale="Initial North Star via init-local",
+            path=active_path,
+        )
     if not store.exists(_CONFIG_PATH):
         store.write_json(_CONFIG_PATH, GuardianConfig().model_dump(mode="json"))
 
@@ -941,8 +1015,8 @@ def init_local(repo_root: str) -> None:
         f"{len(north_star.principles)} principles and "
         f"{len(north_star.anti_patterns)} anti-patterns."
     )
-    click.echo("Repo source: docs/northstar.md")
-    click.echo("Guardian active copy: .github/guardian/northstar.md")
+    click.echo(f"Repo source: {config.north_star.repo_path}")
+    click.echo(f"Guardian active copy: {config.north_star.active_copy_path}")
     click.echo("Guardian is ready.")
 
 

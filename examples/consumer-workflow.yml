@@ -5,7 +5,7 @@
 #
 # Prerequisites:
 #   1. Add OPENAI_API_KEY to repository secrets.
-#   2. Add LINEAR_API_KEY too when north_star.source is "linear".
+#   2. Add LINEAR_API_KEY for trusted slash-command amendments when north_star.source is "linear".
 #   3. Keep the human-facing North Star at docs/northstar.md.
 #   4. Commit .github/guardian/guardian-config.json with your Guardian config.
 
@@ -31,6 +31,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           # Full history lets Guardian read docs/northstar.md from the PR base SHA.
           fetch-depth: 0
 
@@ -45,7 +46,6 @@ jobs:
       - name: Interview PR
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
@@ -58,7 +58,8 @@ jobs:
     name: Slash Command
     if: >-
       github.event_name == 'issue_comment' &&
-      startsWith(github.event.comment.body, '/')
+      startsWith(github.event.comment.body, '/') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
