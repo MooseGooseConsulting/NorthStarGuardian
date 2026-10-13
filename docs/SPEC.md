@@ -45,6 +45,11 @@ Guardian-owned state lives in the normal checkout:
 
 The `.github/guardian/` tree is tracked repo content. It is not hidden local state, and it does not require a separate Git branch. The storage layer treats this directory as Guardian's local state root and exposes `read`, `write`, `exists`, `list`, `read_json`, `write_json`, and `session`.
 
+The filesystem backend writes to the current checkout only. Local runs retain
+those files on disk; GitHub-hosted workflow checkouts are ephemeral and do not
+retain state between runs unless the workflow configures a durable persistence
+mechanism.
+
 ## 4. Linear Integration
 
 Linear is the first external planning and memory integration.
@@ -68,11 +73,11 @@ Guardian may use Linear issues for concrete follow-ups such as policy amendment 
 
 1. GitHub Actions runs `guardian interview` for PR events.
 2. Guardian initializes `.github/guardian/`.
-3. Guardian loads `guardian-config.json`, then creates the Anthropic client.
+3. Guardian loads `guardian-config.json`, then creates the OpenAI client.
 4. Guardian reads PR diff and metadata.
 5. Guardian loads the review North Star:
    - repo source: read `docs/northstar.md` from the PR base SHA
-   - Linear source: fetch the configured Linear document
+   - Linear source: read the committed active snapshot from the PR base SHA; trusted slash-command runs can refresh it from the configured Linear document
 6. Guardian writes the active copy and snapshot metadata.
 7. Guardian analyzes the diff structurally.
 8. Guardian runs OpenAI-backed intent, alignment, anti-pattern, and chronicle prompts.

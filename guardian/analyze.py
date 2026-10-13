@@ -238,7 +238,7 @@ def _call_llm(
     messages.append({"role": "user", "content": user})
     response = client.chat.completions.create(
         model=model,
-        max_tokens=max_tokens,
+        max_completion_tokens=max_tokens,
         messages=messages,
     )
     if not response.choices or response.choices[0].message.content is None:
@@ -611,15 +611,19 @@ def _parse_variance_tags(text: str) -> list[VarianceTag]:
         days_match = _VARIANCE_DAYS_RE.search(body)
         expires_in_days = int(days_match.group(1)) if days_match else 7
 
-        # Build justification: strip principle id from front, strip days clause
-        justification = body
-        if princ_match:
-            justification = re.sub(r"^[\s\u2014\u2013:-]+", "", body[princ_match.end() :]).strip()
+        # Build justification: strip the principle id from the source before
+        # applying the expiry offset, then remove the "N days" fragment.
+        offset = princ_match.end() if princ_match else 0
+        justification_source = body[offset:]
         if days_match:
-            # Remove the "N days" fragment from the justification
-            justification = justification[: days_match.start()].rstrip(" ,;").strip()
-            if not justification:
-                justification = body  # fallback to full body
+            days_start = days_match.start() - offset
+            if days_start >= 0:
+                justification_source = justification_source[:days_start]
+        justification = re.sub(
+            r"^[\s\u2014\u2013:-]+", "", justification_source
+        ).rstrip(" ,;").strip()
+        if not justification:
+            justification = body  # fallback to full body
 
         tags.append(
             VarianceTag(

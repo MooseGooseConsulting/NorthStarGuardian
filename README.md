@@ -11,16 +11,16 @@ Pre-alpha. The core pipeline is covered by tests against synthetic PR fixtures: 
 ## Quickstart
 
 1. **Copy the workflow** - copy `examples/consumer-workflow.yml` into `.github/workflows/guardian.yml` in your target repo and commit it to `main`.
-2. **Add secrets** - add `OPENAI_API_KEY`. If Linear is the canonical policy surface, also add `LINEAR_API_KEY`.
+2. **Add secrets** - add `OPENAI_API_KEY`. If Linear is the canonical policy surface, add `LINEAR_API_KEY` for trusted slash-command operations that refresh the active snapshot or create follow-up issues. Pull request interviews use the committed active snapshot from the base commit and do not receive the Linear secret.
 3. **Author the North Star** - keep the repo-visible policy at `docs/northstar.md`. You can run `guardian init-local` to create both `docs/northstar.md` and `.github/guardian/northstar.md`.
 4. **Configure Guardian** - edit `.github/guardian/guardian-config.json`. Use `north_star.source = "repo"` for repo-backed policy, or `"linear"` with `linear.document_id` and `linear.team_id` for Linear-backed policy.
 
 ## What It Does On Every PR
 
 - Reads the base-branch North Star so a PR cannot review itself against modified rules.
-- If configured for Linear, fetches the Linear document, normalizes it, hashes it, and records the exact snapshot used for review.
+- If configured for Linear, reviews against the active snapshot committed on the base branch. Trusted slash-command runs can refresh it from Linear, normalize it, hash it, and record the exact snapshot used for review.
 - Posts an interview report as a PR comment: alignment summary, relevant principle verdicts, saga assignment, suggestions, and chronicle paragraph.
-- Writes Guardian-owned snapshots under `.github/guardian/memory/`, including journal entries, sagas, drift/debt records, and the generated dashboard.
+- Writes Guardian-owned state under `.github/guardian/memory/`, including journal entries, sagas, drift/debt records, and the generated dashboard. A local run leaves these files in the checkout; GitHub-hosted runs use ephemeral checkouts, so state is not retained between runs unless a workflow configures durable storage.
 - Creates Linear follow-up issues for Linear-backed policy amendment requests.
 
 ## Repo Layout
@@ -69,13 +69,14 @@ Runtime configuration lives at `.github/guardian/guardian-config.json`.
 
 | Field | Default | Description |
 |---|---|---|
-| `north_star.source` | `"repo"` | `"repo"` reads `docs/northstar.md`; `"linear"` fetches the configured Linear document |
+| `north_star.source` | `"repo"` | `"repo"` reads `docs/northstar.md`; `"linear"` uses the committed active snapshot in PR interviews and can fetch the configured Linear document in trusted slash-command runs |
 | `north_star.repo_path` | `"docs/northstar.md"` | Repo-visible North Star path |
 | `north_star.active_copy_path` | `".github/guardian/northstar.md"` | Guardian active-copy path |
 | `linear.document_id` | `null` | Linear document ID used when `north_star.source` is `"linear"` |
 | `linear.team_id` | `null` | Linear team ID for Guardian-created follow-up issues |
 | `linear.project_id` | `null` | Optional Linear project for Guardian-created issues |
 | `openai_model_analysis` | `"gpt-5"` | Model used for PR diff analysis and interview generation |
+| `openai_model_initialization` | `"gpt-5"` | Model used for North Star initialization |
 | `variance_default_days` | `7` | Default debt-timer duration when a `[VARIANCE]` tag omits an expiry |
 | `pages_url` | `null` | Optional direct dashboard URL posted in comments |
 

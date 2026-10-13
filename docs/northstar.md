@@ -48,7 +48,7 @@
   ]
 }
 ---
-# NorthStarGuardian - North Star
+# NorthStarGuardian — North Star
 
 ## Identity
 

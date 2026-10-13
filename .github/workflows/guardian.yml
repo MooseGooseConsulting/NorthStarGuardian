@@ -31,7 +31,6 @@ jobs:
       - name: Run Guardian interview
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_WORKSPACE: ${{ github.workspace }}
         run: |

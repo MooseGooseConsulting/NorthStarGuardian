@@ -76,7 +76,35 @@ def _load_review_north_star(
             )
         api_key = environ.get("LINEAR_API_KEY")
         if not api_key:
-            raise click.ClickException("LINEAR_API_KEY environment variable is not set.")
+            # PR workflows run code from the PR checkout. Use the active copy
+            # pinned in the base commit instead of exposing a Linear secret to
+            # that code path.
+            ref = pr_meta.get("base_sha") or None
+            try:
+                content = read_repo_north_star_markdown(
+                    root,
+                    path=config.north_star.active_copy_path,
+                    ref=ref,
+                )
+            except FileNotFoundError as exc:
+                raise click.ClickException(
+                    "LINEAR_API_KEY is not available and no committed active North Star "
+                    "snapshot exists at the PR base. Refresh and commit the active copy "
+                    "from a trusted run."
+                ) from exc
+            store.write("northstar.md", content)
+            store.write_json(
+                "memory/northstar-snapshot.json",
+                {
+                    "source": "linear",
+                    "path": config.north_star.active_copy_path,
+                    "ref": ref,
+                    "fetched_at": datetime.now(tz=UTC).isoformat(),
+                    "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    "snapshot_source": "committed active copy",
+                },
+            )
+            return parse_north_star_markdown(content)
 
         snapshot = LinearClient(api_key).fetch_document(config.linear.document_id)
         store.write(northstar_path, snapshot.content)
@@ -313,6 +341,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         north_star,
         client=client,
         model=config.openai_model_analysis,
+        pr_meta=meta,
     )
 
     # 5. Load existing sagas and assign the saga for this PR.
@@ -713,12 +742,13 @@ def sweep_debt(repo_root: str | None) -> None:
             )
         body = "\n".join(lines)
 
-        repo.create_issue(
-            title=f"Guardian: {len(expired)} expired debt timer(s) — {datetime.now(tz=UTC).strftime('%Y-%m-%d')}",
-            body=body,
-            labels=["guardian", "tech-debt"],
-        )
-        click.echo("Guardian sweep-debt: tracking issue created.")
+        if expired:
+            repo.create_issue(
+                title=f"Guardian: {len(expired)} expired debt timer(s) — {datetime.now(tz=UTC).strftime('%Y-%m-%d')}",
+                body=body,
+                labels=["guardian", "tech-debt"],
+            )
+            click.echo("Guardian sweep-debt: tracking issue created.")
 
 
 # ---------------------------------------------------------------------------

@@ -106,8 +106,6 @@ def get_pr_diff(ctx: GitHubContext) -> str:
         header = f"diff --git a/{f.filename} b/{f.filename}\n"
         if f.patch:
             parts.append(header + f.patch)
-        else:
-            parts.append(header + "(binary or no patch available)")
     return "\n".join(parts)
 
 

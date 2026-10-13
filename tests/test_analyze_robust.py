@@ -17,7 +17,7 @@ def test_parse_json_response_without_fences():
     result = _parse_json_response(raw, "test")
     assert result["verdict"] == "drift"
 
-def test_analyze_diff_handles_invalid_diff():
+def test_analyze_diff_handles_empty_diff():
     # If the string doesn't even have "---" or "+++" unidiff might just return empty
     # But we want to ensure it doesn't crash.
     # To truly trigger DiffParseError, we need something that unidiff fails on.
