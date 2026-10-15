@@ -19,7 +19,7 @@ The PR is ALIGNED. Your suggestions should focus on minor refinements or "gold-p
 {{ intent.paragraph }}
 
 ### Principle Evaluations
-{% for pe in evaluations %}
+{% for pe in evaluations if pe.relevant and pe.verdict %}
 - **{{ pe.principle_id }}**: {{ pe.verdict.value }} - {{ pe.reasoning }}
 {% endfor %}
 

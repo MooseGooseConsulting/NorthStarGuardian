@@ -361,7 +361,8 @@ class TestReviewNorthStarLoading:
 class TestPreviewDashboard:
     """preview-dashboard renders an HTML file without touching git."""
 
-    def test_renders_html_file(self, tmp_path: Path) -> None:
+    def test_renders_html_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
         runner = CliRunner()
 
         north_star = _make_north_star()

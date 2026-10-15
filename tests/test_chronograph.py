@@ -562,7 +562,9 @@ def test_validate_target_live_root_non_allowlisted_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A path under a live root that is not allowlisted raises ValueError."""
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr("guardian.chronograph.Path.home", staticmethod(lambda: home))
     policy = ChronographSafetyPolicy.for_repo(tmp_path)
     # live_roots includes ~/.codex; create a non-allowlisted file there
     from pathlib import Path as P
