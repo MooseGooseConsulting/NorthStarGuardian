@@ -6,6 +6,7 @@ All LLM calls are mocked — no network access required.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch

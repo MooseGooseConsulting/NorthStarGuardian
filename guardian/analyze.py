@@ -19,6 +19,7 @@ from typing import Any
 
 import unidiff
 from jinja2 import Environment, FileSystemLoader
+from openai import OpenAIError
 
 from guardian.models import (
     AntiPatternMatch,

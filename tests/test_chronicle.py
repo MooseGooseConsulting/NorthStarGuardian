@@ -39,6 +39,7 @@ def _make_report(
     verdict: Verdict = Verdict.ALIGNED,
     *,
     saga_id: str | None = None,
+    created_at: datetime | None = None,
 ) -> InterviewReport:
     ts = datetime(2026, 2, 5, 12, 0, 0, tzinfo=UTC)
     return InterviewReport(
@@ -63,7 +64,7 @@ def _make_report(
             one_line="Add WebSocket support",
             paragraph="The PR adds a WebSocket layer to enable real-time updates.",
         ),
-        created_at=ts,
+        created_at=created_at or ts,
     )
 
 
@@ -108,8 +109,23 @@ class TestWriteJournalEntry:
 
         write_journal_entry(store, report, None)
 
-        expected_path = "memory/journal/2026-02-05-pr-42.md"
+        expected_path = "memory/journal/2026-02-05T12-00-00.000000Z-pr-42.md"
         assert store.exists(expected_path), f"Expected {expected_path!r} in store"
+
+    def test_same_day_runs_keep_separate_entries(self) -> None:
+        store = FakeStore()
+        first_report = _make_report(pr_number=42)
+        second_report = _make_report(
+            pr_number=42,
+            created_at=first_report.created_at + timedelta(hours=6),
+        )
+
+        write_journal_entry(store, first_report, None)
+        write_journal_entry(store, second_report, None)
+
+        paths = store.list("memory/journal/")
+        assert len(paths) == 2
+        assert paths[0] < paths[1]
 
     def test_frontmatter_round_trips(self) -> None:
         store = FakeStore()
@@ -118,7 +134,7 @@ class TestWriteJournalEntry:
 
         write_journal_entry(store, report, saga)
 
-        raw = store.read("memory/journal/2026-02-05-pr-7.md")
+        raw = store.read("memory/journal/2026-02-05T12-00-00.000000Z-pr-7.md")
         # Split frontmatter
         parts = raw.split("---", 2)
         assert len(parts) == 3, "Expected YAML frontmatter delimiters"
@@ -134,7 +150,7 @@ class TestWriteJournalEntry:
         report = _make_report(pr_number=1)
         write_journal_entry(store, report, None)
 
-        raw = store.read("memory/journal/2026-02-05-pr-1.md")
+        raw = store.read("memory/journal/2026-02-05T12-00-00.000000Z-pr-1.md")
         assert "WebSocket layer" in raw
 
     def test_body_contains_principle_table(self) -> None:
@@ -142,7 +158,7 @@ class TestWriteJournalEntry:
         report = _make_report(pr_number=1)
         write_journal_entry(store, report, None)
 
-        raw = store.read("memory/journal/2026-02-05-pr-1.md")
+        raw = store.read("memory/journal/2026-02-05T12-00-00.000000Z-pr-1.md")
         assert "| `p1`" in raw
 
     def test_no_saga_uses_unassigned(self) -> None:
@@ -151,7 +167,7 @@ class TestWriteJournalEntry:
         entry = write_journal_entry(store, report, None)
 
         assert entry.saga_id is None
-        raw = store.read("memory/journal/2026-02-05-pr-3.md")
+        raw = store.read("memory/journal/2026-02-05T12-00-00.000000Z-pr-3.md")
         assert "saga_id: unassigned" in raw
 
     def test_suggestions_appear_in_body(self) -> None:
@@ -159,7 +175,7 @@ class TestWriteJournalEntry:
         report = _make_report(pr_number=5)
         write_journal_entry(store, report, None)
 
-        raw = store.read("memory/journal/2026-02-05-pr-5.md")
+        raw = store.read("memory/journal/2026-02-05T12-00-00.000000Z-pr-5.md")
         assert "Consider adding a docstring here." in raw
 
 

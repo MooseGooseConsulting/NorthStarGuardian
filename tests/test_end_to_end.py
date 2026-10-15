@@ -221,8 +221,8 @@ def test_integrated_interview_workflow_with_governance(
     repo_and_store: tuple[Path, MemoryStore]
 ) -> None:
     from guardian import governance
-    from guardian.models import DriftSeverity, Verdict
-    from guardian.cli import _format_report_comment, GuardianConfig
+    from guardian.cli import GuardianConfig, _format_report_comment
+    from guardian.models import Verdict
     from guardian.north_star import read_north_star
 
     _repo, store = repo_and_store
@@ -341,7 +341,7 @@ def test_integrated_interview_workflow_with_governance(
         )
 
     # Refresh dashboard
-    html = render_dashboard(store, north_star)
+    render_dashboard(store, north_star)
 
     # Build PR comment
     comment = _format_report_comment(report, config)

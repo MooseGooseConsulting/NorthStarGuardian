@@ -15,6 +15,8 @@ Pre-alpha. The core pipeline is covered by tests against synthetic PR fixtures: 
 3. **Author the North Star** - keep the repo-visible policy at `docs/northstar.md`. You can run `guardian init-local` to create both `docs/northstar.md` and `.github/guardian/northstar.md`.
 4. **Configure Guardian** - edit `.github/guardian/guardian-config.json`. Use `north_star.source = "repo"` for repo-backed policy, or `"linear"` with `linear.document_id` and `linear.team_id` for Linear-backed policy.
 
+For Linear-backed policy, PR interviews use the committed active-copy snapshot at the PR base and cannot refresh Linear from ephemeral GitHub Actions. Refresh and commit the active copy from a trusted persistent checkout (or another supported process) before reviews need the new policy.
+
 ## What It Does On Every PR
 
 - Reads the base-branch North Star so a PR cannot review itself against modified rules.
@@ -81,6 +83,8 @@ Runtime configuration lives at `.github/guardian/guardian-config.json`.
 | `openai_model_initialization` | `"gpt-5"` | Model used for North Star initialization |
 | `variance_default_days` | `7` | Default debt-timer duration when a `[VARIANCE]` tag omits an expiry |
 | `pages_url` | `null` | Optional direct dashboard URL posted in comments |
+
+Legacy flat North Star and Linear settings are normalized into the nested `north_star` and `linear` sections. Explicit nested values take precedence when both forms are present.
 
 `enable_blocking_escalation` defaults to `false`. The debt machinery can record expired variance timers, but merge-blocking remains opt-in because Guardian is advisory by default.
 

@@ -22,12 +22,13 @@ from guardian.github_io import GitHubContext, get_pr_diff, get_pr_meta, post_pr_
 from guardian.memory import MemoryStore
 from guardian.models import GuardianConfig
 from guardian.north_star import (
-    amend_north_star,
     active_copy_store_path,
+    amend_north_star,
     initialize_north_star,
     parse_north_star_markdown,
     read_north_star,
     read_repo_file_at_ref,
+    read_repo_north_star,
     read_repo_north_star_markdown,
     write_north_star,
     write_repo_north_star,
@@ -49,8 +50,17 @@ def _load_config(
     """Read GuardianConfig from .github/guardian, defaulting if absent."""
     if ref and repo_root:
         try:
+            config_dir = store.storage_path.resolve().relative_to(repo_root.resolve())
+        except ValueError as exc:
+            raise click.ClickException(
+                "Base-pinned Guardian config must be stored inside the repository."
+            ) from exc
+
+        try:
             raw_text = read_repo_file_at_ref(
-                repo_root, path=".github/guardian/guardian-config.json", ref=ref
+                repo_root,
+                path=(config_dir / _CONFIG_PATH).as_posix(),
+                ref=ref,
             )
             raw = json.loads(raw_text)
         except FileNotFoundError:
@@ -656,6 +666,21 @@ def _handle_amend(
                 f"Created `{issue.identifier}` for review: {issue.url}"
             )
         else:
+            if config.north_star.source == "repo":
+                repo_root = getattr(store, "repo_root", None)
+                if not isinstance(repo_root, Path):
+                    raise click.ClickException(
+                        "Repo-backed amendments require a repository root."
+                    )
+                source = read_repo_north_star(
+                    repo_root, path=config.north_star.repo_path
+                )
+                write_north_star(
+                    store,
+                    source,
+                    rationale="Refresh repo-backed North Star before amendment",
+                    path=_active_copy_path(config),
+                )
             updated = amend_north_star(
                 store,
                 target="principle",

@@ -87,3 +87,12 @@ def test_read_repo_north_star_markdown_rejects_flag_injection(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="Invalid path"):
         read_repo_north_star_markdown(repo, ref="main", path="-o")
+
+    with pytest.raises(ValueError, match="escapes outside repository"):
+        read_repo_north_star_markdown(repo, ref="main", path="../outside.md")
+
+    with pytest.raises(ValueError, match="must be relative"):
+        read_repo_north_star_markdown(repo, ref="main", path="/etc/passwd")
+
+    with pytest.raises(ValueError, match="Invalid git ref"):
+        read_repo_north_star_markdown(repo, ref="main:docs/northstar.md")
