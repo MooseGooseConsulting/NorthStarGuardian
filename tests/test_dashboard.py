@@ -513,6 +513,31 @@ class TestRenderDashboard:
         assert "p2" in active_principles
         assert "anti-pattern" not in active_principles
 
+    def test_resolved_pr_drift_is_not_shown_as_active(self) -> None:
+        store = self._make_store_with_data()
+        store.write(
+            "memory/journal/2026-02-06-pr-2.md",
+            "\n".join(
+                [
+                    "---",
+                    "pr_number: 2",
+                    "saga_id: auth-overhaul",
+                    "verdict: aligned",
+                    "timestamp: 2026-02-06 00:00:00 UTC",
+                    "---",
+                    "Fixed the prior drift.",
+                ]
+            ),
+        )
+
+        html = render_dashboard(store, _make_north_star())
+        drift_overview = html.split("<!-- What is Drifting -->", 1)[1].split(
+            "<!-- What is Overdue -->", 1
+        )[0]
+
+        assert "No active drift detected." in drift_overview
+        assert "Whisper import found." not in drift_overview
+
     def test_mermaid_directives_embedded(self) -> None:
         store = self._make_store_with_data()
         north_star = _make_north_star()

@@ -316,10 +316,24 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
         expired_timers = []
         debt_timer_error = True
     latest_change = max(journal, key=lambda entry: entry.timestamp, default=None)
+    latest_journal_by_pr = {}
+    for entry in journal:
+        previous = latest_journal_by_pr.get(entry.pr_number)
+        if previous is None or entry.timestamp > previous.timestamp:
+            latest_journal_by_pr[entry.pr_number] = entry
+    active_drift_events = [
+        event
+        for event in drift_events
+        if (latest_entry := latest_journal_by_pr.get(event.pr_number)) is not None
+        and event.timestamp >= latest_entry.timestamp
+        and (latest_entry.verdict == Verdict.DRIFT or event.principle_id == "anti-pattern")
+    ]
     principle_ids = {principle.id for principle in north_star.principles}
     active_principles = sorted(
         Counter(
-            event.principle_id for event in drift_events if event.principle_id in principle_ids
+            event.principle_id
+            for event in active_drift_events
+            if event.principle_id in principle_ids
         ).items(),
         key=lambda item: (-item[1], item[0]),
     )
@@ -338,7 +352,7 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
         identity_statement=north_star.identity_statement,
         principles=north_star.principles,
         latest_change=latest_change,
-        drift_events=drift_events,
+        drift_events=active_drift_events,
         expired_timers=expired_timers,
         debt_timer_error=debt_timer_error,
         active_principles=active_principles,
