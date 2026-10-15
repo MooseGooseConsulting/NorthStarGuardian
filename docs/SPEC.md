@@ -94,7 +94,7 @@ Guardian may use Linear issues for concrete follow-ups such as policy amendment 
 | `/dashboard` | Regenerates the local dashboard artifact |
 | `/status` | Summarizes active debt timers and last interview |
 
-The GitHub Actions slash-command job is limited to issue comments from repository owners, members, and collaborators. This restriction applies before the workflow exposes `LINEAR_API_KEY` for Linear-backed `/amend` requests.
+The bundled workflow does not handle issue comments. A consumer may add the `issue_comment` job from `examples/consumer-workflow.yml`; that example limits the job to repository owners, members, and collaborators before exposing `LINEAR_API_KEY` for Linear-backed `/amend` requests.
 
 ## 7. Configuration
 

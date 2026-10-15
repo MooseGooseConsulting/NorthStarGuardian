@@ -445,6 +445,32 @@ class TestRenderDashboard:
         render_dashboard(store, north_star)
         assert store.exists("memory/dashboard.html")
 
+    def test_operator_overview_receives_journal_drift_and_expired_debt(self) -> None:
+        store = self._make_store_with_data()
+        store.write_json(
+            "memory/debt-timers.json",
+            [
+                {
+                    "id": "expired-debt",
+                    "pr_number": 2,
+                    "principle_id": "p2",
+                    "justification": "Migrate the legacy import.",
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                    "expires_at": "2024-01-08T00:00:00+00:00",
+                    "resolved_at": None,
+                    "level": 0,
+                    "affected_paths": ["src/legacy.py"],
+                }
+            ],
+        )
+
+        html = render_dashboard(store, _make_north_star())
+
+        assert "PR #2" in html
+        assert "Whisper import found." in html
+        assert "Migrate the legacy import." in html
+        assert "p2" in html
+
     def test_mermaid_directives_embedded(self) -> None:
         store = self._make_store_with_data()
         north_star = _make_north_star()

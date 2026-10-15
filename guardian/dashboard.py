@@ -15,6 +15,7 @@ result to ``memory/dashboard.html`` via store.write().
 from __future__ import annotations
 
 import re
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -304,6 +305,14 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
     journal = read_chronicle(store)
     drift_events = _load_drift_events(store)
     sagas = _load_all_sagas(store)
+    from guardian.governance import check_debt_timers
+
+    expired_timers = check_debt_timers(store)["expired"]
+    latest_change = max(journal, key=lambda entry: entry.timestamp, default=None)
+    active_principles = sorted(
+        Counter(event.principle_id for event in drift_events).items(),
+        key=lambda item: (-item[1], item[0]),
+    )
 
     gantt_src = generate_gantt(sagas)
     gitgraph_src = generate_gitgraph(drift_events, journal)
@@ -318,6 +327,10 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
         project_name=north_star.project_name,
         identity_statement=north_star.identity_statement,
         principles=north_star.principles,
+        latest_change=latest_change,
+        drift_events=drift_events,
+        expired_timers=expired_timers,
+        active_principles=active_principles,
         gantt_src=gantt_src,
         gitgraph_src=gitgraph_src,
         quadrant_src=quadrant_src,

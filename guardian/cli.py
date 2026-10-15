@@ -80,8 +80,10 @@ def _load_config(
         try:
             raw = store.read_json(_CONFIG_PATH)
             return GuardianConfig(**raw)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise click.ClickException(
+                f"Failed to load local Guardian config '{_CONFIG_PATH}': {exc}"
+            ) from exc
     return GuardianConfig()
 
 
@@ -188,17 +190,18 @@ def _load_review_north_star(
         path=config.north_star.repo_path,
         ref=ref,
     )
-    store.write(northstar_path, content)
-    store.write_json(
-        "memory/northstar-snapshot.json",
-        {
-            "source": "repo",
-            "path": config.north_star.repo_path,
-            "ref": ref,
-            "fetched_at": datetime.now(tz=UTC).isoformat(),
-            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        },
-    )
+    if persist:
+        store.write(northstar_path, content)
+        store.write_json(
+            "memory/northstar-snapshot.json",
+            {
+                "source": "repo",
+                "path": config.north_star.repo_path,
+                "ref": ref,
+                "fetched_at": datetime.now(tz=UTC).isoformat(),
+                "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            },
+        )
     return parse_north_star_markdown(content)
 
 
@@ -457,13 +460,49 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         # 6. Write journal entry.
         chronicle.write_journal_entry(store, report, saga)
 
-    # 7. Render dashboard.
-    dashboard.render_dashboard(store, north_star)
+        # 7. Record drift and declared variances for persistent runs.
+        from guardian import governance
+        from guardian.models import DriftSeverity, Verdict
 
-    # 8. Flush repo-native Guardian state.
-    pr_num = ctx.pr.number
-    with store.session(f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"):
-        pass  # session commits whatever was staged by the above calls
+        for evaluation in report.principle_evaluations:
+            if evaluation.verdict == Verdict.DRIFT:
+                governance.log_drift(
+                    store,
+                    pr_number=report.pr_number,
+                    principle_id=evaluation.principle_id,
+                    severity=DriftSeverity.MEDIUM,
+                    details=evaluation.reasoning or "Principle evaluation returned drift.",
+                )
+
+        for match in report.anti_pattern_matches:
+            governance.log_drift(
+                store,
+                pr_number=report.pr_number,
+                principle_id="anti-pattern",
+                severity=DriftSeverity.HIGH,
+                details=f"Detected pattern: {match.pattern_id}. {match.explanation}",
+            )
+
+        affected_paths = [file.path for file in diff_analysis.files]
+        for variance in report.intent.declared_variances:
+            governance.grant_variance(
+                store,
+                variance,
+                pr_number=report.pr_number,
+                config=config,
+                affected_paths=affected_paths,
+            )
+
+        # 8. Render dashboard and report expired debt.
+        dashboard.render_dashboard(store, north_star)
+        debt_status = governance.check_debt_timers(store)
+        if debt_status["expired"]:
+            click.echo(f"WARNING: {len(debt_status['expired'])} expired debt timers found!")
+
+        # 9. Flush repo-native Guardian state.
+        pr_num = ctx.pr.number
+        with store.session(f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"):
+            pass  # session commits whatever was staged by the above calls
 
     # 9. Post report as a PR comment.
     comment_body = _format_report_comment(report, config)
@@ -608,17 +647,30 @@ def _handle_re_anchor(
     config: GuardianConfig,
     args: list[str],
 ) -> None:
-    """Handle /re-anchor — show current North Star summary and instructions."""
+    """Refresh the active copy from its configured source and show a summary."""
     try:
-        north_star = read_north_star(store)
+        if config.north_star.source == "linear" and not os.environ.get("LINEAR_API_KEY"):
+            raise click.ClickException(
+                "LINEAR_API_KEY is required to refresh the configured Linear North Star."
+            )
+        north_star = _load_review_north_star(
+            store.repo_root,
+            store,
+            config,
+            {},
+            persist=True,
+            allow_linear_refresh=True,
+        )
         principles_text = "\n".join(f"{p.rank}. {p.text}" for p in north_star.principles)
         reply = (
             f"## Guardian Re-Anchor\n\n"
             f"**Current identity:** {north_star.identity_statement}\n\n"
             f"**Principles:**\n{principles_text}\n\n"
-            "Re-anchoring to current North Star sources. "
-            "Run /show-northstar to verify the updated anchor."
+            "The configured North Star source was refreshed and the active copy was "
+            f"updated at `{config.north_star.active_copy_path}`."
         )
+    except click.ClickException as exc:
+        reply = f"Guardian: {exc.format_message()}"
     except FileNotFoundError:
         reply = (
             "Guardian: no active North Star found. Run `guardian init-local` "

@@ -58,12 +58,12 @@ docs/
 
 While Guardian is designed to be triggered via GitHub Actions, the CLI can be run manually or as scheduled jobs.
 
-In GitHub Actions, the slash-command job runs only for comments from repository owners, members, or collaborators. Linear-backed `/amend` can create an issue for those users; repo-backed state changes remain disabled in ephemeral checkouts.
+The bundled `.github/workflows/guardian.yml` handles pull requests only; it does not run slash commands. To enable commands from GitHub comments, copy the `issue_comment` job from `examples/consumer-workflow.yml` into your own workflow. That example limits the job to repository owners, members, and collaborators. Linear-backed `/amend` can create an issue for those users; repo-backed state changes remain disabled in ephemeral checkouts.
 
 | CLI Command | Purpose |
 |---|---|
 | `guardian interview` | Triggered by `pull_request` events to analyze diff and post comments. |
-| `guardian command` | Triggered by `issue_comment` events to handle slash commands. |
+| `guardian command` | Handles slash commands when invoked locally or by a consumer-owned `issue_comment` workflow. |
 | `guardian sweep-debt` | Checks debt timers and escalates them in a persistent checkout; GitHub Actions runs skip mutations because their checkouts are ephemeral. |
 | `guardian preview-dashboard` | Local dev: render the dashboard to a local HTML file. |
 
