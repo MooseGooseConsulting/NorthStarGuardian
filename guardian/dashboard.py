@@ -307,10 +307,20 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
     sagas = _load_all_sagas(store)
     from guardian.governance import check_debt_timers
 
-    expired_timers = check_debt_timers(store)["expired"]
+    debt_timer_error = False
+    try:
+        expired_timers = check_debt_timers(store)["expired"]
+    except (KeyError, TypeError, ValueError):
+        # Keep malformed optional governance state from hiding the interview
+        # results; the template reports that timer status is unavailable.
+        expired_timers = []
+        debt_timer_error = True
     latest_change = max(journal, key=lambda entry: entry.timestamp, default=None)
+    principle_ids = {principle.id for principle in north_star.principles}
     active_principles = sorted(
-        Counter(event.principle_id for event in drift_events).items(),
+        Counter(
+            event.principle_id for event in drift_events if event.principle_id in principle_ids
+        ).items(),
         key=lambda item: (-item[1], item[0]),
     )
 
@@ -330,6 +340,7 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
         latest_change=latest_change,
         drift_events=drift_events,
         expired_timers=expired_timers,
+        debt_timer_error=debt_timer_error,
         active_principles=active_principles,
         gantt_src=gantt_src,
         gitgraph_src=gitgraph_src,

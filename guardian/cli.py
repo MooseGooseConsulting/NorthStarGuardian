@@ -161,6 +161,7 @@ def _load_review_north_star(
                     "exists at the PR base. Refresh and commit the active copy from a "
                     "trusted run."
                 ) from exc
+            north_star = parse_north_star_markdown(content)
             if persist:
                 store.write(northstar_path, content)
                 store.write_json(
@@ -174,15 +175,17 @@ def _load_review_north_star(
                         "snapshot_source": "committed active copy",
                     },
                 )
-            return parse_north_star_markdown(content)
+            return north_star
 
         snapshot = LinearClient(api_key).fetch_document(config.linear.document_id)
-        store.write(northstar_path, snapshot.content)
-        store.write_json(
-            "memory/northstar-snapshot.json",
-            snapshot.model_dump(mode="json"),
-        )
-        return parse_north_star_markdown(snapshot.content)
+        north_star = parse_north_star_markdown(snapshot.content)
+        if persist:
+            store.write(northstar_path, snapshot.content)
+            store.write_json(
+                "memory/northstar-snapshot.json",
+                snapshot.model_dump(mode="json"),
+            )
+        return north_star
 
     ref = pr_meta.get("base_sha") or None
     content = read_repo_north_star_markdown(
@@ -190,6 +193,7 @@ def _load_review_north_star(
         path=config.north_star.repo_path,
         ref=ref,
     )
+    north_star = parse_north_star_markdown(content)
     if persist:
         store.write(northstar_path, content)
         store.write_json(
@@ -202,7 +206,7 @@ def _load_review_north_star(
                 "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
             },
         )
-    return parse_north_star_markdown(content)
+    return north_star
 
 
 def _create_linear_amendment_issue(
@@ -493,11 +497,20 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
                 affected_paths=affected_paths,
             )
 
-        # 8. Render dashboard and report expired debt.
-        dashboard.render_dashboard(store, north_star)
-        debt_status = governance.check_debt_timers(store)
-        if debt_status["expired"]:
-            click.echo(f"WARNING: {len(debt_status['expired'])} expired debt timers found!")
+        # 8. Render optional dashboard and report expired debt. Dashboard
+        # state must not prevent posting the completed interview report.
+        try:
+            dashboard.render_dashboard(store, north_star)
+            debt_status = governance.check_debt_timers(store)
+        except Exception as exc:
+            click.echo(
+                "WARNING: Guardian dashboard could not be completed; "
+                "the interview report will still be posted. "
+                f"Details: {exc}"
+            )
+        else:
+            if debt_status["expired"]:
+                click.echo(f"WARNING: {len(debt_status['expired'])} expired debt timers found!")
 
         # 9. Flush repo-native Guardian state.
         pr_num = ctx.pr.number

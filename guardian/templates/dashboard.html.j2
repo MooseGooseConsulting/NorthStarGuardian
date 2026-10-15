@@ -264,7 +264,9 @@
       <div class="chart-section" style="margin-bottom: 0;">
         <h2>What is Overdue</h2>
         <div class="chart-body" style="padding: 1rem; font-size: 0.9rem;">
-          {% if expired_timers %}
+          {% if debt_timer_error %}
+            <p style="color: var(--ambiguous);">Debt timer data is invalid; overdue status is unavailable.</p>
+          {% elif expired_timers %}
             <p style="color: var(--drift);"><strong>{{ expired_timers | length }}</strong> Overdue Debt Timer{{ 's' if expired_timers | length != 1 else '' }}</p>
             <ul style="list-style: none; margin-top: 0.5rem; max-height: 100px; overflow-y: auto; font-size: 0.8rem; border-top: 1px solid var(--border); padding-top: 0.5rem;">
               {% for t in expired_timers[:3] %}

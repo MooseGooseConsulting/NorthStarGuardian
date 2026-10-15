@@ -202,6 +202,23 @@ class TestReviewNorthStarLoading:
         assert "BasePolicy" in store.read("northstar.md")
         assert store.read_json("memory/northstar-snapshot.json")["source"] == "repo"
 
+    def test_invalid_repo_source_preserves_active_copy_and_snapshot(self, tmp_path: Path) -> None:
+        from guardian.cli import _load_review_north_star
+        from guardian.memory import MemoryStore
+
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "northstar.md").write_text("invalid policy", encoding="utf-8")
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        store.write("northstar.md", "previous valid policy")
+        store.write_json("memory/northstar-snapshot.json", {"source": "previous"})
+
+        with pytest.raises(ValueError, match="missing YAML frontmatter"):
+            _load_review_north_star(tmp_path, store, GuardianConfig(), {})
+
+        assert store.read("northstar.md") == "previous valid policy"
+        assert store.read_json("memory/northstar-snapshot.json") == {"source": "previous"}
+
     def test_linear_source_requires_api_key(self, tmp_path: Path) -> None:
         from click import ClickException
 
@@ -261,6 +278,47 @@ class TestReviewNorthStarLoading:
         assert north_star.project_name == "LinearPolicy"
         assert "LinearPolicy" in store.read("northstar.md")
         assert store.read_json("memory/northstar-snapshot.json")["document_id"] == "doc-1"
+
+    def test_invalid_linear_source_preserves_active_copy_and_snapshot(self, tmp_path: Path) -> None:
+        from guardian.cli import _load_review_north_star
+        from guardian.linear import LinearDocumentSnapshot
+        from guardian.memory import MemoryStore
+
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        store.write("northstar.md", "previous valid policy")
+        store.write_json("memory/northstar-snapshot.json", {"source": "previous"})
+        config = GuardianConfig(
+            north_star={"source": "linear"},
+            linear={"document_id": "doc-1"},
+        )
+        fake_client = MagicMock()
+        fake_client.fetch_document.return_value = LinearDocumentSnapshot(
+            document_id="doc-1",
+            document_content_id="content-1",
+            title="Linear North Star",
+            url="https://linear.app/acme/document/doc-1",
+            updated_at="2026-05-26T12:00:00.000Z",
+            updated_by="Ada",
+            fetched_at=datetime(2026, 5, 26, tzinfo=UTC),
+            sha256="a" * 64,
+            content="invalid policy",
+        )
+
+        with (
+            patch("guardian.linear.LinearClient", return_value=fake_client),
+            pytest.raises(ValueError, match="missing YAML frontmatter"),
+        ):
+            _load_review_north_star(
+                tmp_path,
+                store,
+                config,
+                {},
+                env={"LINEAR_API_KEY": "lin-test"},
+            )
+
+        assert store.read("northstar.md") == "previous valid policy"
+        assert store.read_json("memory/northstar-snapshot.json") == {"source": "previous"}
 
     def test_repo_source_does_not_write_to_uninitialized_ephemeral_store(
         self, tmp_path: Path
@@ -552,7 +610,11 @@ class TestInterview:
                 patch.object(chronicle_mod, "assign_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "update_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "write_journal_entry"),
-                patch.object(dashboard_mod, "render_dashboard", return_value="<html/>"),
+                patch.object(
+                    dashboard_mod,
+                    "render_dashboard",
+                    side_effect=ValueError("malformed debt timer"),
+                ),
                 patch.object(governance_mod, "log_drift") as log_drift,
                 patch.object(governance_mod, "grant_variance") as grant_variance,
             ):
@@ -565,6 +627,7 @@ class TestInterview:
         assert result.exit_code == 0, result.output
         assert log_drift.call_count == 2
         assert grant_variance.call_args.kwargs["affected_paths"] == ["src/example.py"]
+        assert "interview report will still be posted" in result.output
         mock_post.assert_called_once()
         # The comment body should mention the PR number.
         comment_body = mock_post.call_args[0][1]

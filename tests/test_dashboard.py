@@ -471,6 +471,48 @@ class TestRenderDashboard:
         assert "Migrate the legacy import." in html
         assert "p2" in html
 
+    def test_invalid_debt_timer_is_shown_as_unavailable(self) -> None:
+        store = self._make_store_with_data()
+        store.write_json("memory/debt-timers.json", [{"id": "incomplete"}])
+
+        html = render_dashboard(store, _make_north_star())
+
+        assert "Debt timer data is invalid; overdue status is unavailable." in html
+        assert "All debt timers are within limits." not in html
+
+    def test_active_principles_excludes_synthetic_anti_pattern_id(self) -> None:
+        store = self._make_store_with_data()
+        events = [
+            DriftEvent(
+                id="de-real",
+                pr_number=2,
+                principle_id="p2",
+                severity=DriftSeverity.HIGH,
+                details="A real principle drift.",
+                timestamp=datetime(2026, 2, 5, tzinfo=UTC),
+            ),
+            DriftEvent(
+                id="de-synthetic",
+                pr_number=2,
+                principle_id="anti-pattern",
+                severity=DriftSeverity.HIGH,
+                details="A synthetic anti-pattern drift.",
+                timestamp=datetime(2026, 2, 5, tzinfo=UTC),
+            ),
+        ]
+        store.write_json(
+            "memory/drift-ledger.json",
+            {"events": [event.model_dump(mode="json") for event in events]},
+        )
+
+        html = render_dashboard(store, _make_north_star())
+        active_principles = html.split("<!-- Most Active Principles -->", 1)[1].split(
+            "<!-- Saga Timeline -->", 1
+        )[0]
+
+        assert "p2" in active_principles
+        assert "anti-pattern" not in active_principles
+
     def test_mermaid_directives_embedded(self) -> None:
         store = self._make_store_with_data()
         north_star = _make_north_star()
