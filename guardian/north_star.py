@@ -11,7 +11,7 @@ import re
 import subprocess
 import textwrap
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import yaml
@@ -228,9 +228,18 @@ def read_repo_file_at_ref(repo_root: Path, path: str, ref: str) -> str:
     """Read a repository file from a git object without checking it out."""
     if ref.startswith("-") or ":" in ref:
         raise ValueError(f"Invalid git ref: '{ref}'")
-    if path.startswith("-"):
+    git_path = PurePosixPath(path)
+    windows_path = PureWindowsPath(path)
+    if (
+        path.startswith("-")
+        or "\x00" in path
+        or git_path.is_absolute()
+        or windows_path.is_absolute()
+        or windows_path.drive
+        or ".." in git_path.parts
+        or ".." in windows_path.parts
+    ):
         raise ValueError(f"Invalid path: '{path}'")
-    _resolve_repo_path(repo_root, path)
     result = subprocess.run(
         ["git", "show", f"{ref}:{path}"],
         cwd=str(repo_root),

@@ -10,6 +10,7 @@ from guardian.models import NorthStar, Principle
 from guardian.north_star import (
     read_repo_north_star,
     read_repo_north_star_markdown,
+    render_north_star_markdown,
     write_repo_north_star,
 )
 
@@ -70,11 +71,18 @@ def test_read_repo_north_star_markdown_can_read_git_ref_instead_of_checkout(
     _git(["commit", "-m", "add base policy"], cwd=repo)
 
     write_repo_north_star(repo, _sample("HeadPolicy"))
+    outside = tmp_path / "outside.md"
+    outside.write_text(
+        render_north_star_markdown(_sample("ExternalPolicy")), encoding="utf-8"
+    )
+    (repo / "docs" / "northstar.md").unlink()
+    (repo / "docs" / "northstar.md").symlink_to(outside)
 
     markdown = read_repo_north_star_markdown(repo, ref="HEAD")
 
     assert "BasePolicy" in markdown
     assert "HeadPolicy" not in markdown
+    assert "ExternalPolicy" not in markdown
 
 
 def test_read_repo_north_star_markdown_rejects_flag_injection(tmp_path: Path) -> None:
@@ -88,10 +96,10 @@ def test_read_repo_north_star_markdown_rejects_flag_injection(tmp_path: Path) ->
     with pytest.raises(ValueError, match="Invalid path"):
         read_repo_north_star_markdown(repo, ref="main", path="-o")
 
-    with pytest.raises(ValueError, match="escapes outside repository"):
+    with pytest.raises(ValueError, match="Invalid path"):
         read_repo_north_star_markdown(repo, ref="main", path="../outside.md")
 
-    with pytest.raises(ValueError, match="must be relative"):
+    with pytest.raises(ValueError, match="Invalid path"):
         read_repo_north_star_markdown(repo, ref="main", path="/etc/passwd")
 
     with pytest.raises(ValueError, match="Invalid git ref"):

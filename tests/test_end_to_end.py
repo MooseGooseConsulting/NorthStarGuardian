@@ -349,7 +349,7 @@ def test_integrated_interview_workflow_with_governance(
     # Assertions
     # A. Comment assertions
     assert "Guardian Interview — PR #99" in comment
-    assert "Added Standalone script and variance" in comment or "refactor" in comment.lower() or "Bob" in comment or "Chronicle" in comment
+    assert "Chronicle summary for bob." in comment
     assert "scripts/bad.py:1" in comment
 
     # B. Journal entry assertions

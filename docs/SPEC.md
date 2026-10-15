@@ -56,8 +56,6 @@ Linear is the first external planning and memory integration.
 
 When `north_star.source` is `"linear"`, trusted persistent `/re-anchor` runs can fetch `linear.document_id` through Linear's GraphQL API using `LINEAR_API_KEY`. PR interviews do not receive that secret and use the active copy committed at the PR base SHA. The snapshot recorded at `.github/guardian/memory/northstar-snapshot.json` includes:
 
-Because GitHub Actions uses ephemeral checkouts, it cannot persist `/re-anchor` updates. Refresh and commit the active copy from a trusted persistent checkout or another supported process before PR reviews need a newer Linear policy.
-
 - provider
 - document ID
 - document content ID when available
@@ -68,6 +66,8 @@ Because GitHub Actions uses ephemeral checkouts, it cannot persist `/re-anchor` 
 - fetch timestamp
 - SHA-256 hash
 - normalized content
+
+Because GitHub Actions uses ephemeral checkouts, it cannot persist `/re-anchor` updates. Refresh and commit the active copy from a trusted persistent checkout or another supported process before PR reviews need a newer Linear policy.
 
 Guardian may use Linear issues for concrete follow-ups such as policy amendment proposals and drift tasks. Linear is allowed to be the canonical managed planning surface, but Guardian must still record the exact snapshot it used for each review.
 

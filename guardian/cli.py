@@ -150,10 +150,20 @@ def _load_review_north_star(
                     ref=ref,
                 )
             except FileNotFoundError as exc:
+                if not persist:
+                    refresh_reason = (
+                        "Live Linear refresh is disabled for this ephemeral operation"
+                    )
+                elif not can_refresh:
+                    refresh_reason = (
+                        "Live Linear refresh is disabled for pull request reviews"
+                    )
+                else:
+                    refresh_reason = "LINEAR_API_KEY is not available"
                 raise click.ClickException(
-                    "LINEAR_API_KEY is not available and no committed active North Star "
-                    "snapshot exists at the PR base. Refresh and commit the active copy "
-                    "from a trusted run."
+                    f"{refresh_reason}, and no committed active North Star snapshot "
+                    "exists at the PR base. Refresh and commit the active copy from a "
+                    "trusted run."
                 ) from exc
             if persist:
                 store.write(northstar_path, content)
