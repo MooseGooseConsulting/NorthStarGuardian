@@ -30,9 +30,11 @@ You are the Repository Guardian — a knowledgeable colleague with perfect memor
 
 Files changed:
 {% for f in diff.files %}
-- {{ f.path }} (+{{ f.additions }}/−{{ f.deletions }}){% if f.new_imports %} — new imports: {{ f.new_imports | join(", ") }}{% endif %}
+- {{ f.path }} (+{{ f.additions }}/−{{ f.deletions }}){% if not f.patch_available %} (text patch unavailable; GitHub file metadata only){% endif %}{% if f.new_imports %} — new imports: {{ f.new_imports | join(", ") }}{% endif %}
 
 {% endfor %}
+
+Files marked "text patch unavailable" include GitHub metadata only. Do not infer their contents or cite them as evidence for content-level findings.
 
 {% if diff.new_packages %}
 New package dependencies detected: {{ diff.new_packages | join(", ") }}

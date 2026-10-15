@@ -93,6 +93,7 @@ def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> Ma
         _llm_response(alignment_json),
         _llm_response("[]"),
         _llm_response(chronicle_prose),
+        _llm_response("[]"),
         _llm_response("CREATE: New Saga"),
     ]
     return client
@@ -167,7 +168,7 @@ def test_full_pr_interview_cycle(
     assert report.overall_verdict.value == verdict
     assert report.chronicle_paragraph
     assert report.intent.one_line
-    assert client.chat.completions.create.call_count == 4
+    assert client.chat.completions.create.call_count == 5
 
     saga = assign_saga(
         store,
@@ -176,7 +177,7 @@ def test_full_pr_interview_cycle(
         client=client,
         model="claude-test-mock",
     )
-    assert client.chat.completions.create.call_count == 5
+    assert client.chat.completions.create.call_count == 6
     assert saga.id
     assert saga.name == "New Saga"
 
@@ -214,3 +215,169 @@ def test_full_pr_interview_cycle(
     assert "cdn.jsdelivr.net" in dashboard_content
     for directive in ("gantt", "gitGraph", "quadrantChart", "mindmap"):
         assert directive in dashboard_content, f"chart directive {directive!r} missing"
+
+
+def test_integrated_interview_workflow_with_governance(
+    repo_and_store: tuple[Path, MemoryStore],
+) -> None:
+    from guardian import governance
+    from guardian.cli import GuardianConfig, _format_report_comment
+    from guardian.models import DriftSeverity, Verdict
+    from guardian.north_star import read_north_star
+
+    _repo, store = repo_and_store
+    config = GuardianConfig()
+
+    pr_meta = {
+        "number": 99,
+        "title": "Introduce standalone scripting and mock variance",
+        "body": "This PR breaks the LLM rule but has [VARIANCE: p1 | needed for testing | 10 days].",
+        "author": "bob",
+        "base_sha": "abc111",
+        "head_sha": "def222",
+    }
+
+    diff_analysis = analyze_diff(SAMPLE_DIFF, pr_meta)
+
+    # 1. Intent JSON
+    intent_json = json.dumps(
+        {
+            "one_line": "Added Standalone script and variance",
+            "paragraph": "This is Bob's change.",
+        }
+    )
+    # 2. Alignment JSON - Return DRIFT on Principle 1 (which we'll ID as 'p1')
+    alignment_json = json.dumps(
+        [
+            {
+                "principle_id": "p1",
+                "relevant": True,
+                "verdict": "drift",
+                "reasoning": "Stand-alone script that runs without any LLM call.",
+                "citations": ["scripts/bad.py:10"],
+            }
+        ]
+    )
+    # 3. Anti-Patterns Matches JSON
+    ap_match_json = json.dumps(
+        [
+            {
+                "pattern_id": "ap1",
+                "location": "scripts/bad.py:1",
+                "explanation": "standalone shell script bypasses LLM",
+            }
+        ]
+    )
+
+    client = MagicMock()
+    client.chat.completions.create.side_effect = [
+        _llm_response(intent_json),  # assess_intent
+        _llm_response(alignment_json),  # evaluate_alignment
+        _llm_response(ap_match_json),  # detect_anti_patterns
+        _llm_response("Chronicle summary for bob."),  # _draft_chronicle
+        _llm_response('["Consider using a helper class instead"]'),  # _draft_suggestions
+        _llm_response("CREATE: bob-saga"),  # assign_saga
+    ]
+
+    north_star = read_north_star(store)
+
+    report = run_interview(
+        diff_analysis,
+        north_star,
+        client=client,
+        model="claude-test-mock",
+        pr_meta=pr_meta,
+    )
+
+    assert report.pr_number == 99
+    assert report.overall_verdict == Verdict.DRIFT
+    assert len(report.intent.declared_variances) == 1
+    assert report.intent.declared_variances[0].principle_id == "p1"
+
+    # Assign saga & Chronicle
+    saga = assign_saga(
+        store,
+        report.intent,
+        existing_sagas=[],
+        client=client,
+        model="claude-test-mock",
+    )
+    saga = update_saga(store, saga, report.pr_number)
+    report = report.model_copy(update={"saga_id": saga.id})
+    write_journal_entry(store, report, saga)
+
+    # 4. Governance & Drift Logging (simulating cli.py)
+    # Log drift for specific principle evaluations.
+    for pe in report.principle_evaluations:
+        if pe.verdict == Verdict.DRIFT:
+            severity = DriftSeverity.MEDIUM
+            governance.log_drift(
+                store,
+                pr_number=report.pr_number,
+                principle_id=pe.principle_id,
+                severity=severity,
+                details=pe.reasoning or "Principle evaluation returned drift.",
+            )
+
+    # Log drift for detected anti-patterns.
+    for apm in report.anti_pattern_matches:
+        severity = DriftSeverity.HIGH
+        governance.log_drift(
+            store,
+            pr_number=report.pr_number,
+            principle_id="anti-pattern",
+            severity=severity,
+            details=f"Detected pattern: {apm.pattern_id}. {apm.explanation}",
+        )
+
+    # Grant variances
+    for tag in report.intent.declared_variances:
+        governance.grant_variance(
+            store,
+            tag,
+            pr_number=report.pr_number,
+            config=config,
+            affected_paths=["scripts/bad.py"],
+        )
+
+    # Refresh dashboard
+    render_dashboard(store, north_star)
+
+    # Build PR comment
+    comment = _format_report_comment(report, config)
+
+    # Assertions
+    # A. Comment assertions
+    assert "Guardian Interview — PR #99" in comment
+    assert "Chronicle summary for bob." in comment
+    assert "scripts/bad.py:1" in comment
+
+    # B. Journal entry assertions
+    journal_files = store.list("memory/journal/")
+    assert any("99" in f for f in journal_files)
+
+    # C. Drift ledger assertions
+    assert store.exists("memory/drift-ledger.json")
+    drift_ledger = store.read_json("memory/drift-ledger.json")
+    # Should contain 2 events: one for drift evaluation, one for anti-pattern
+    assert len(drift_ledger) == 2 or (
+        isinstance(drift_ledger, dict) and len(drift_ledger["events"]) == 2
+    )
+
+    # D. Variance debt timer assertions
+    assert store.exists("memory/debt-timers.json")
+    debt_timers = store.read_json("memory/debt-timers.json")
+    assert len(debt_timers) == 1 or (
+        isinstance(debt_timers, dict) and len(debt_timers["timers"]) == 1
+    )
+
+    # E. Dashboard assertions
+    assert store.exists("memory/dashboard.html")
+    dashboard_content = store.read("memory/dashboard.html")
+    # Verify the Operator Overview section is present in dashboard
+    assert "What Changed" in dashboard_content
+    assert "What is Drifting" in dashboard_content
+    assert "What is Overdue" in dashboard_content
+    assert "Active Principles" in dashboard_content
+    # And contains details of Bob's PR
+    assert "PR #99" in dashboard_content

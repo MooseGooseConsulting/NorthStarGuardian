@@ -18,13 +18,17 @@ from click.testing import CliRunner
 
 from guardian.cli import cli, parse_slash_command
 from guardian.models import (
+    AntiPatternMatch,
     DiffAnalysis,
+    FileChange,
     GuardianConfig,
     IntentSummary,
     InterviewReport,
     JournalEntry,
     NorthStar,
     Principle,
+    PrincipleEvaluation,
+    VarianceTag,
     Verdict,
 )
 
@@ -198,6 +202,23 @@ class TestReviewNorthStarLoading:
         assert "BasePolicy" in store.read("northstar.md")
         assert store.read_json("memory/northstar-snapshot.json")["source"] == "repo"
 
+    def test_invalid_repo_source_preserves_active_copy_and_snapshot(self, tmp_path: Path) -> None:
+        from guardian.cli import _load_review_north_star
+        from guardian.memory import MemoryStore
+
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "northstar.md").write_text("invalid policy", encoding="utf-8")
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        store.write("northstar.md", "previous valid policy")
+        store.write_json("memory/northstar-snapshot.json", {"source": "previous"})
+
+        with pytest.raises(ValueError, match="missing YAML frontmatter"):
+            _load_review_north_star(tmp_path, store, GuardianConfig(), {})
+
+        assert store.read("northstar.md") == "previous valid policy"
+        assert store.read_json("memory/northstar-snapshot.json") == {"source": "previous"}
+
     def test_linear_source_requires_api_key(self, tmp_path: Path) -> None:
         from click import ClickException
 
@@ -258,6 +279,137 @@ class TestReviewNorthStarLoading:
         assert "LinearPolicy" in store.read("northstar.md")
         assert store.read_json("memory/northstar-snapshot.json")["document_id"] == "doc-1"
 
+    def test_invalid_linear_source_preserves_active_copy_and_snapshot(self, tmp_path: Path) -> None:
+        from guardian.cli import _load_review_north_star
+        from guardian.linear import LinearDocumentSnapshot
+        from guardian.memory import MemoryStore
+
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        store.write("northstar.md", "previous valid policy")
+        store.write_json("memory/northstar-snapshot.json", {"source": "previous"})
+        config = GuardianConfig(
+            north_star={"source": "linear"},
+            linear={"document_id": "doc-1"},
+        )
+        fake_client = MagicMock()
+        fake_client.fetch_document.return_value = LinearDocumentSnapshot(
+            document_id="doc-1",
+            document_content_id="content-1",
+            title="Linear North Star",
+            url="https://linear.app/acme/document/doc-1",
+            updated_at="2026-05-26T12:00:00.000Z",
+            updated_by="Ada",
+            fetched_at=datetime(2026, 5, 26, tzinfo=UTC),
+            sha256="a" * 64,
+            content="invalid policy",
+        )
+
+        with (
+            patch("guardian.linear.LinearClient", return_value=fake_client),
+            pytest.raises(ValueError, match="missing YAML frontmatter"),
+        ):
+            _load_review_north_star(
+                tmp_path,
+                store,
+                config,
+                {},
+                env={"LINEAR_API_KEY": "lin-test"},
+            )
+
+        assert store.read("northstar.md") == "previous valid policy"
+        assert store.read_json("memory/northstar-snapshot.json") == {"source": "previous"}
+
+    def test_repo_source_does_not_write_to_uninitialized_ephemeral_store(
+        self, tmp_path: Path
+    ) -> None:
+        from guardian.cli import _load_review_north_star
+        from guardian.memory import MemoryStore
+        from guardian.north_star import write_repo_north_star
+
+        write_repo_north_star(tmp_path, _make_north_star())
+        store = MemoryStore(tmp_path)
+
+        north_star = _load_review_north_star(
+            tmp_path,
+            store,
+            GuardianConfig(),
+            {},
+            persist=False,
+        )
+
+        assert north_star.project_name == "TestProject"
+        assert not (tmp_path / ".github" / "guardian").exists()
+
+    def test_local_invalid_config_reports_error(self, tmp_path: Path) -> None:
+        from click import ClickException
+
+        from guardian.cli import _load_config
+        from guardian.memory import MemoryStore
+
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        store.write("guardian-config.json", '{"north_star":{"source":"unknown"}}')
+
+        with pytest.raises(ClickException, match="Failed to load local Guardian config"):
+            _load_config(store)
+
+    def test_re_anchor_refreshes_configured_repo_path_and_active_copy(self, tmp_path: Path) -> None:
+        from guardian.cli import _handle_re_anchor
+        from guardian.memory import MemoryStore
+        from guardian.north_star import write_repo_north_star
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        fresh = _make_north_star().model_copy(
+            update={
+                "project_name": "FreshPolicy",
+                "identity_statement": "Fresh policy identity.",
+            }
+        )
+        write_repo_north_star(repo, fresh, path="policies/northstar.md")
+
+        store = MemoryStore(repo)
+        store.ensure_initialized()
+        store.write("northstar.md", "stale default copy")
+        config = GuardianConfig(
+            north_star={
+                "source": "repo",
+                "repo_path": "policies/northstar.md",
+                "active_copy_path": ".github/guardian/custom/active.md",
+            }
+        )
+        ctx = MagicMock()
+        ctx.pr = MagicMock()
+
+        with patch("guardian.cli.post_pr_comment") as post_comment:
+            _handle_re_anchor(ctx, store, config, [])
+
+        assert "Fresh policy identity." in post_comment.call_args.args[1]
+        assert "FreshPolicy" in store.read("custom/active.md")
+        assert store.read("northstar.md") == "stale default copy"
+
+    def test_re_anchor_requires_linear_key_for_refresh(self, tmp_path: Path) -> None:
+        from guardian.cli import _handle_re_anchor
+        from guardian.memory import MemoryStore
+
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        config = GuardianConfig(
+            north_star={"source": "linear"},
+            linear={"document_id": "doc-1"},
+        )
+
+        ctx = MagicMock()
+        ctx.pr = MagicMock()
+        with (
+            patch.dict("os.environ", {"LINEAR_API_KEY": ""}, clear=False),
+            patch("guardian.cli.post_pr_comment") as post_comment,
+        ):
+            _handle_re_anchor(ctx, store, config, [])
+
+        assert "LINEAR_API_KEY is required" in post_comment.call_args.args[1]
+
 
 # ---------------------------------------------------------------------------
 # guardian preview-dashboard
@@ -267,7 +419,8 @@ class TestReviewNorthStarLoading:
 class TestPreviewDashboard:
     """preview-dashboard renders an HTML file without touching git."""
 
-    def test_renders_html_file(self, tmp_path: Path) -> None:
+    def test_renders_html_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
         runner = CliRunner()
 
         north_star = _make_north_star()
@@ -358,7 +511,37 @@ class TestInterview:
         event_file.write_text(json.dumps(payload), encoding="utf-8")
 
         north_star = _make_north_star()
-        report = _make_report(42)
+        report = _make_report(42).model_copy(
+            update={
+                "principle_evaluations": [
+                    PrincipleEvaluation(
+                        principle_id="p1",
+                        relevant=True,
+                        verdict=Verdict.DRIFT,
+                        reasoning="A test drift finding.",
+                    )
+                ],
+                "anti_pattern_matches": [
+                    AntiPatternMatch(
+                        pattern_id="ap1",
+                        location="src/example.py:1",
+                        explanation="A test anti-pattern.",
+                    )
+                ],
+                "intent": IntentSummary(
+                    one_line="Add feature",
+                    paragraph="Adds a feature.",
+                    declared_variances=[
+                        VarianceTag(
+                            principle_id="p2",
+                            justification="Compatibility exception",
+                            expires_in_days=5,
+                            raw="[VARIANCE: p2]",
+                        )
+                    ],
+                ),
+            }
+        )
 
         mock_store = MagicMock()
         mock_store.exists.return_value = False
@@ -376,12 +559,16 @@ class TestInterview:
         mock_ctx.event_name = "pull_request"
 
         mock_diff_analysis = MagicMock(spec=DiffAnalysis)
+        mock_diff_analysis.files = [
+            FileChange(path="src/example.py", status="modified", additions=2, deletions=1)
+        ]
 
         env = {
             "GITHUB_TOKEN": "test-token",
             "GITHUB_REPOSITORY": "test/repo",
             "GITHUB_EVENT_NAME": "pull_request",
             "OPENAI_API_KEY": "test-key",
+            "GITHUB_ACTIONS": "false",
         }
 
         with (
@@ -410,6 +597,7 @@ class TestInterview:
             import guardian.analyze as analyze_mod
             import guardian.chronicle as chronicle_mod
             import guardian.dashboard as dashboard_mod
+            import guardian.governance as governance_mod
 
             mock_saga = MagicMock()
             mock_saga.id = "test-saga"
@@ -422,7 +610,18 @@ class TestInterview:
                 patch.object(chronicle_mod, "assign_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "update_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "write_journal_entry"),
-                patch.object(dashboard_mod, "render_dashboard", return_value="<html/>"),
+                patch.object(
+                    dashboard_mod,
+                    "render_dashboard",
+                    side_effect=ValueError("malformed debt timer"),
+                ),
+                patch.object(governance_mod, "log_drift") as log_drift,
+                patch.object(governance_mod, "grant_variance") as grant_variance,
+                patch.object(
+                    governance_mod,
+                    "check_debt_timers",
+                    return_value={"expired": [MagicMock()]},
+                ) as check_debt_timers,
             ):
                 result = runner.invoke(
                     cli,
@@ -431,10 +630,74 @@ class TestInterview:
                 )
 
         assert result.exit_code == 0, result.output
+        assert log_drift.call_count == 2
+        assert grant_variance.call_args.kwargs["affected_paths"] == ["src/example.py"]
+        assert "interview report will still be posted" in result.output
+        assert "1 expired debt timers found" in result.output
+        check_debt_timers.assert_called_once_with(mock_store)
         mock_post.assert_called_once()
         # The comment body should mention the PR number.
         comment_body = mock_post.call_args[0][1]
         assert "42" in comment_body
+
+    def test_ephemeral_interview_skips_store_mutations(self, tmp_path: Path) -> None:
+        from guardian.north_star import write_repo_north_star
+
+        runner = CliRunner()
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        write_repo_north_star(repo, _make_north_star())
+        _git(["add", "docs/northstar.md"], cwd=repo)
+        _git(["commit", "-m", "add north star"], cwd=repo)
+
+        event_file = tmp_path / "event.json"
+        event_file.write_text(json.dumps(self._make_event_payload(42)), encoding="utf-8")
+        mock_pr = MagicMock()
+        mock_pr.number = 42
+        mock_pr.get_files.return_value = []
+        mock_ctx = MagicMock()
+        mock_ctx.pr = mock_pr
+        report = _make_report(42)
+        diff_analysis = MagicMock(spec=DiffAnalysis)
+        env = {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_REPOSITORY": "test/repo",
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_ACTIONS": "true",
+            "OPENAI_API_KEY": "test-key",
+        }
+
+        with (
+            patch("guardian.cli.GitHubContext") as context_cls,
+            patch("guardian.cli.get_pr_diff", return_value="diff --git ..."),
+            patch(
+                "guardian.cli.get_pr_meta",
+                return_value={"number": 42, "base_sha": "HEAD", "head_sha": "HEAD"},
+            ),
+            patch("guardian.cli._make_openai_client", return_value=MagicMock()),
+            patch("guardian.cli.post_pr_comment") as post_comment,
+        ):
+            context_cls.from_env.return_value = mock_ctx
+            import guardian.analyze as analyze_mod
+            import guardian.dashboard as dashboard_mod
+
+            with (
+                patch.object(analyze_mod, "analyze_diff", return_value=diff_analysis),
+                patch.object(analyze_mod, "run_interview", return_value=report),
+                patch.object(dashboard_mod, "render_dashboard") as render_dashboard,
+            ):
+                result = runner.invoke(
+                    cli,
+                    ["interview", "--event-path", str(event_file), "--repo-root", str(repo)],
+                    env=env,
+                )
+
+        assert result.exit_code == 0, result.output
+        assert not (repo / ".github" / "guardian").exists()
+        render_dashboard.assert_not_called()
+        post_comment.assert_called_once()
+        assert "did not save" in post_comment.call_args.args[1]
 
     def test_interview_fails_without_pr(self, tmp_path: Path) -> None:
         runner = CliRunner()

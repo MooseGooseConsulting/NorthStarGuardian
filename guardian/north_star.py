@@ -11,9 +11,10 @@ import re
 import subprocess
 import textwrap
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
+import yaml
 from jinja2 import Environment, PackageLoader
 
 from guardian.memory import MemoryStore
@@ -25,20 +26,37 @@ _AMENDMENT_LOG_PATH = "memory/amendment-log.md"
 _REPO_NORTH_STAR_PATH = "docs/northstar.md"
 
 
+def active_copy_store_path(repo_path: str) -> str:
+    """Convert a repo-relative active-copy path to a store-relative path."""
+    path = PurePosixPath(repo_path.replace("\\", "/"))
+    root = PurePosixPath(".github/guardian")
+    if path.is_absolute():
+        raise ValueError("North Star active-copy path must be repo-relative")
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("North Star active-copy path must stay under .github/guardian") from exc
+    if not relative.parts or ".." in relative.parts:
+        raise ValueError("North Star active-copy path must stay under .github/guardian")
+    return relative.as_posix()
+
+
 # ---------------------------------------------------------------------------
 # Markdown round-trip
 # ---------------------------------------------------------------------------
 
-_FRONTMATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
+_FRONTMATTER_RE = re.compile(r"^---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", re.DOTALL)
 
 
 def parse_north_star_markdown(text: str) -> NorthStar:
-    """Parse a North Star from its Markdown+JSON-frontmatter representation."""
+    """Parse a North Star from its Markdown+YAML-frontmatter representation."""
     m = _FRONTMATTER_RE.match(text)
     if not m:
         raise ValueError("northstar.md is missing YAML frontmatter")
 
-    raw: dict[str, Any] = json.loads(m.group(1)) or {}
+    raw = yaml.safe_load(m.group(1)) or {}
+    if not isinstance(raw, dict):
+        raise ValueError("North Star frontmatter must be a YAML mapping")
 
     return NorthStar(
         version=raw.get("version", 1),
@@ -176,9 +194,9 @@ def _anti_pattern_body_lines(anti_patterns: list[AntiPattern]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def read_north_star(store: MemoryStore) -> NorthStar:
+def read_north_star(store: MemoryStore, path: str = _NORTH_STAR_PATH) -> NorthStar:
     """Read and parse Guardian's active North Star copy."""
-    text = store.read(_NORTH_STAR_PATH)
+    text = store.read(path)
     return parse_north_star_markdown(text)
 
 
@@ -186,9 +204,10 @@ def write_north_star(
     store: MemoryStore,
     c: NorthStar,
     rationale: str = "initial",
+    path: str = _NORTH_STAR_PATH,
 ) -> None:
     """Serialise and write *c* to Guardian's active copy."""
-    store.write(_NORTH_STAR_PATH, render_north_star_markdown(c), message=rationale)
+    store.write(path, render_north_star_markdown(c), message=rationale)
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +226,34 @@ def _resolve_repo_path(repo_root: Path, path: str) -> Path:
     return full
 
 
+def read_repo_file_at_ref(repo_root: Path, path: str, ref: str) -> str:
+    """Read a repository file from a git object without checking it out."""
+    if ref.startswith("-") or ":" in ref:
+        raise ValueError(f"Invalid git ref: '{ref}'")
+    git_path = PurePosixPath(path)
+    windows_path = PureWindowsPath(path)
+    if (
+        path.startswith("-")
+        or "\x00" in path
+        or git_path.is_absolute()
+        or windows_path.is_absolute()
+        or windows_path.drive
+        or ".." in git_path.parts
+        or ".." in windows_path.parts
+    ):
+        raise ValueError(f"Invalid path: '{path}'")
+    result = subprocess.run(
+        ["git", "show", f"{ref}:{path}"],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise FileNotFoundError(f"{path} was not found at git ref {ref}: {result.stderr.strip()}")
+    return result.stdout
+
+
 def read_repo_north_star_markdown(
     repo_root: Path,
     path: str = _REPO_NORTH_STAR_PATH,
@@ -220,18 +267,7 @@ def read_repo_north_star_markdown(
     branch policy rather than a PR's modified policy.
     """
     if ref:
-        result = subprocess.run(
-            ["git", "show", f"{ref}:{path}"],
-            cwd=str(repo_root),
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise FileNotFoundError(
-                f"{path} was not found at git ref {ref}: {result.stderr.strip()}"
-            )
-        return result.stdout
+        return read_repo_file_at_ref(repo_root, path, ref)
 
     full = _resolve_repo_path(repo_root, path)
     if not full.exists():
@@ -272,6 +308,8 @@ def amend_north_star(
     after: str,
     rationale: str,
     actor: str,
+    *,
+    path: str = _NORTH_STAR_PATH,
 ) -> NorthStar:
     """Apply an amendment to the North Star and record it in the log.
 
@@ -280,7 +318,7 @@ def amend_north_star(
 
     Returns the updated North Star (staged but not committed).
     """
-    c = read_north_star(store)
+    c = read_north_star(store, path=path)
     now = datetime.now(tz=UTC)
     c, before = _apply_amendment(c, target, target_id, after, now)
 
@@ -295,7 +333,7 @@ def amend_north_star(
         rationale=rationale,
     )
 
-    write_north_star(store, c, rationale=rationale)
+    write_north_star(store, c, rationale=rationale, path=path)
     append_amendment(store, amendment)
     return c
 

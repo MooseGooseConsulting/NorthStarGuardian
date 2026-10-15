@@ -22,7 +22,7 @@ Guardian also maintains an active copy:
 .github/guardian/northstar.md
 ```
 
-The active copy is the exact policy body Guardian used or refreshed. PR review reads the base-branch version of the repo source so a PR cannot modify its own review rules. When Linear is configured as the canonical surface, Guardian fetches the configured Linear document, normalizes it, hashes it, and writes the fetched content to the active copy before review.
+The active copy is the exact policy body Guardian used or refreshed. PR review reads the base-branch version of the repo source so a PR cannot modify its own review rules. When Linear is canonical, trusted `/re-anchor` runs in a persistent checkout can fetch the configured document, normalize and hash it, then write it to the active copy. PR interviews instead use the active copy committed at the PR base SHA.
 
 ## 3. Guardian State
 
@@ -45,11 +45,16 @@ Guardian-owned state lives in the normal checkout:
 
 The `.github/guardian/` tree is tracked repo content. It is not hidden local state, and it does not require a separate Git branch. The storage layer treats this directory as Guardian's local state root and exposes `read`, `write`, `exists`, `list`, `read_json`, `write_json`, and `session`.
 
+The filesystem backend writes to the current checkout only. Local runs retain
+those files on disk; GitHub-hosted workflow checkouts are ephemeral and do not
+retain state between runs unless the workflow configures a durable persistence
+mechanism.
+
 ## 4. Linear Integration
 
 Linear is the first external planning and memory integration.
 
-When `north_star.source` is `"linear"`, Guardian fetches `linear.document_id` through Linear's GraphQL API using `LINEAR_API_KEY`. The snapshot recorded at `.github/guardian/memory/northstar-snapshot.json` includes:
+When `north_star.source` is `"linear"`, trusted persistent `/re-anchor` runs can fetch `linear.document_id` through Linear's GraphQL API using `LINEAR_API_KEY`. PR interviews do not receive that secret and use the active copy committed at the PR base SHA. The snapshot recorded at `.github/guardian/memory/northstar-snapshot.json` includes:
 
 - provider
 - document ID
@@ -62,34 +67,34 @@ When `north_star.source` is `"linear"`, Guardian fetches `linear.document_id` th
 - SHA-256 hash
 - normalized content
 
+Because GitHub Actions uses ephemeral checkouts, it cannot persist `/re-anchor` updates. Refresh and commit the active copy from a trusted persistent checkout or another supported process before PR reviews need a newer Linear policy.
+
 Guardian may use Linear issues for concrete follow-ups such as policy amendment proposals and drift tasks. Linear is allowed to be the canonical managed planning surface, but Guardian must still record the exact snapshot it used for each review.
 
 ## 5. PR Interview Flow
 
 1. GitHub Actions runs `guardian interview` for PR events.
-2. Guardian initializes `.github/guardian/`.
-3. Guardian loads `guardian-config.json`, then creates the Anthropic client.
-4. Guardian reads PR diff and metadata.
-5. Guardian loads the review North Star:
-   - repo source: read `docs/northstar.md` from the PR base SHA
-   - Linear source: fetch the configured Linear document
-6. Guardian writes the active copy and snapshot metadata.
-7. Guardian analyzes the diff structurally.
-8. Guardian runs OpenAI-backed intent, alignment, anti-pattern, and chronicle prompts.
-9. Guardian assigns or updates a saga and writes a journal entry.
-10. Guardian regenerates `.github/guardian/memory/dashboard.html`.
-11. Guardian posts the interview report as a PR comment.
+2. Guardian reads the PR metadata and loads both `guardian-config.json` and the review North Star from the PR base SHA, so a PR cannot redirect the policy used for its own review.
+3. Guardian reads PR diff and file metadata. Files without a text patch remain in the structural context with their path and change counts, but are marked as unavailable for text review.
+4. Guardian runs OpenAI-backed intent, alignment, anti-pattern, and chronicle prompts.
+5. In a persistent local checkout, Guardian updates the active-copy snapshot, assigns or updates a saga, writes a journal entry, records drift and debt, and regenerates `.github/guardian/memory/dashboard.html`.
+6. In GitHub Actions, the checkout is ephemeral and Guardian skips those state mutations. The workflow posts the interview report, but does not claim that state was saved between runs.
+7. Guardian posts the interview report as a PR comment.
+   - repo source: read the configured repo North Star from the PR base SHA
+   - Linear source: read the committed active snapshot from the PR base SHA; a trusted local `/re-anchor` may fetch the current Linear document
 
 ## 6. Slash Commands
 
 | Command | Behavior |
 |---|---|
 | `/init-guardian` | Provides setup instructions for `docs/northstar.md` and `.github/guardian/` |
-| `/re-anchor` | Shows the current active copy and points operators to the configured source |
-| `/amend` | Repo-backed: update active copy; Linear-backed: create a Linear amendment issue |
+| `/re-anchor` | Refreshes the active copy from its configured source and shows a summary |
+| `/amend` | Repo-backed: update the configured repo source and active copy; Linear-backed: create a Linear amendment issue |
 | `/chronicle` | Posts recent journal entries |
 | `/dashboard` | Regenerates the local dashboard artifact |
 | `/status` | Summarizes active debt timers and last interview |
+
+The bundled workflow does not handle issue comments. A consumer may add the `issue_comment` job from `examples/consumer-workflow.yml`; that example limits the job to repository owners, members, and collaborators before exposing `LINEAR_API_KEY` for Linear-backed `/amend` requests.
 
 ## 7. Configuration
 
@@ -111,6 +116,8 @@ Important fields:
 - `variance_default_days`: default duration for declared variance debt
 - `enable_blocking_escalation`: defaults to `false`
 - `pages_url`: optional direct dashboard URL
+
+The active-copy path must remain inside `.github/guardian/`. In ephemeral GitHub Actions runs, `/re-anchor`, repo-backed `/amend`, and `/dashboard` report that they cannot mutate Guardian state because no durable state backend is configured. Linear-backed `/amend` is allowed only for repository owners, members, and collaborators; it creates a Linear issue without writing checkout state. `sweep-debt` reports that it was skipped, while `init-local` and `preview-dashboard` reject the run because they cannot persist changes or output. Run state-mutating commands from a persistent checkout.
 
 ## 8. Invariants
 

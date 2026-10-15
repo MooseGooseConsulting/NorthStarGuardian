@@ -445,6 +445,162 @@ class TestRenderDashboard:
         render_dashboard(store, north_star)
         assert store.exists("memory/dashboard.html")
 
+    def test_operator_overview_receives_journal_drift_and_expired_debt(self) -> None:
+        store = self._make_store_with_data()
+        store.write_json(
+            "memory/debt-timers.json",
+            [
+                {
+                    "id": "expired-debt",
+                    "pr_number": 2,
+                    "principle_id": "p2",
+                    "justification": "Migrate the legacy import.",
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                    "expires_at": "2024-01-08T00:00:00+00:00",
+                    "resolved_at": None,
+                    "level": 0,
+                    "affected_paths": ["src/legacy.py"],
+                }
+            ],
+        )
+
+        html = render_dashboard(store, _make_north_star())
+
+        assert "PR #2" in html
+        assert "Whisper import found." in html
+        assert "Migrate the legacy import." in html
+        assert "p2" in html
+
+    def test_invalid_debt_timer_is_shown_as_unavailable(self) -> None:
+        store = self._make_store_with_data()
+        store.write_json("memory/debt-timers.json", [{"id": "incomplete"}])
+
+        html = render_dashboard(store, _make_north_star())
+
+        assert "Debt timer data is invalid; overdue status is unavailable." in html
+        assert "All debt timers are within limits." not in html
+
+    def test_active_principles_excludes_synthetic_anti_pattern_id(self) -> None:
+        store = self._make_store_with_data()
+        events = [
+            DriftEvent(
+                id="de-real",
+                pr_number=2,
+                principle_id="p2",
+                severity=DriftSeverity.HIGH,
+                details="A real principle drift.",
+                timestamp=datetime(2026, 2, 5, tzinfo=UTC),
+            ),
+            DriftEvent(
+                id="de-synthetic",
+                pr_number=2,
+                principle_id="anti-pattern",
+                severity=DriftSeverity.HIGH,
+                details="A synthetic anti-pattern drift.",
+                timestamp=datetime(2026, 2, 5, tzinfo=UTC),
+            ),
+        ]
+        store.write_json(
+            "memory/drift-ledger.json",
+            {"events": [event.model_dump(mode="json") for event in events]},
+        )
+
+        html = render_dashboard(store, _make_north_star())
+        active_principles = html.split("<!-- Most Active Principles -->", 1)[1].split(
+            "<!-- Saga Timeline -->", 1
+        )[0]
+
+        assert "p2" in active_principles
+        assert "anti-pattern" not in active_principles
+
+    def test_resolved_pr_drift_is_not_shown_as_active(self) -> None:
+        store = self._make_store_with_data()
+        store.write(
+            "memory/journal/2026-02-06-pr-2.md",
+            "\n".join(
+                [
+                    "---",
+                    "pr_number: 2",
+                    "saga_id: auth-overhaul",
+                    "verdict: aligned",
+                    "timestamp: 2026-02-06 00:00:00 UTC",
+                    "---",
+                    "Fixed the prior drift.",
+                ]
+            ),
+        )
+
+        html = render_dashboard(store, _make_north_star())
+        drift_overview = html.split("<!-- What is Drifting -->", 1)[1].split(
+            "<!-- What is Overdue -->", 1
+        )[0]
+
+        assert "No active drift detected." in drift_overview
+        assert "Whisper import found." not in drift_overview
+
+    def test_drift_without_readable_journal_remains_visible(self) -> None:
+        store = FakeStore()
+        event = DriftEvent(
+            id="orphan-drift",
+            pr_number=3,
+            principle_id="p1",
+            severity=DriftSeverity.HIGH,
+            details="No readable journal entry exists.",
+            timestamp=datetime(2026, 2, 5, tzinfo=UTC),
+        )
+        store.write_json("memory/drift-ledger.json", {"events": [event.model_dump(mode="json")]})
+
+        html = render_dashboard(store, _make_north_star())
+        drift_overview = html.split("<!-- What is Drifting -->", 1)[1].split(
+            "<!-- What is Overdue -->", 1
+        )[0]
+        drift_text = " ".join(_parse_html(drift_overview).full_text().split())
+
+        assert "1 Active Drift Event" in drift_text
+        assert "PR #3" in drift_text
+        active_principles = html.split("<!-- Most Active Principles -->", 1)[1].split(
+            "<!-- Saga Timeline -->", 1
+        )[0]
+        assert "p1" in active_principles
+
+    def test_new_drift_after_aligned_journal_is_visible(self) -> None:
+        store = self._make_store_with_data()
+        store.write(
+            "memory/journal/2026-02-06-pr-2.md",
+            "\n".join(
+                [
+                    "---",
+                    "pr_number: 2",
+                    "saga_id: auth-overhaul",
+                    "verdict: aligned",
+                    "timestamp: 2026-02-06 00:00:00 UTC",
+                    "---",
+                    "The PR was aligned at this point.",
+                ]
+            ),
+        )
+        new_event = DriftEvent(
+            id="new-drift",
+            pr_number=2,
+            principle_id="p1",
+            severity=DriftSeverity.HIGH,
+            details="A new drift was logged after the aligned journal.",
+            timestamp=datetime(2026, 2, 7, tzinfo=UTC),
+        )
+        store.write_json(
+            "memory/drift-ledger.json",
+            {"events": [event.model_dump(mode="json") for event in [new_event]]},
+        )
+
+        html = render_dashboard(store, _make_north_star())
+        drift_overview = html.split("<!-- What is Drifting -->", 1)[1].split(
+            "<!-- What is Overdue -->", 1
+        )[0]
+        drift_text = " ".join(_parse_html(drift_overview).full_text().split())
+
+        assert "1 Active Drift Event" in drift_text
+        assert "A new drift was logged after the aligned journal." in drift_text
+
     def test_mermaid_directives_embedded(self) -> None:
         store = self._make_store_with_data()
         north_star = _make_north_star()

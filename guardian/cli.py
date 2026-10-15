@@ -8,6 +8,7 @@ lives in the imported modules; this file is only orchestration and I/O.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 from datetime import UTC, datetime
@@ -21,10 +22,13 @@ from guardian.github_io import GitHubContext, get_pr_diff, get_pr_meta, post_pr_
 from guardian.memory import MemoryStore
 from guardian.models import GuardianConfig
 from guardian.north_star import (
+    active_copy_store_path,
     amend_north_star,
     initialize_north_star,
     parse_north_star_markdown,
     read_north_star,
+    read_repo_file_at_ref,
+    read_repo_north_star,
     read_repo_north_star_markdown,
     write_north_star,
     write_repo_north_star,
@@ -37,15 +41,68 @@ from guardian.north_star import (
 _CONFIG_PATH = "guardian-config.json"
 
 
-def _load_config(store: MemoryStore) -> GuardianConfig:
+def _load_config(
+    store: MemoryStore,
+    *,
+    repo_root: Path | None = None,
+    ref: str | None = None,
+) -> GuardianConfig:
     """Read GuardianConfig from .github/guardian, defaulting if absent."""
+    if ref and repo_root:
+        try:
+            config_dir = store.storage_path.resolve().relative_to(repo_root.resolve())
+        except ValueError as exc:
+            raise click.ClickException(
+                "Base-pinned Guardian config must be stored inside the repository."
+            ) from exc
+
+        try:
+            raw_text = read_repo_file_at_ref(
+                repo_root,
+                path=(config_dir / _CONFIG_PATH).as_posix(),
+                ref=ref,
+            )
+            raw = json.loads(raw_text)
+        except FileNotFoundError:
+            return GuardianConfig()
+        except Exception as exc:
+            raise click.ClickException(
+                f"Failed to load base-branch config '{_CONFIG_PATH}': {exc}"
+            ) from exc
+        try:
+            return GuardianConfig(**raw)
+        except Exception as exc:
+            raise click.ClickException(
+                f"Failed to load base-branch config '{_CONFIG_PATH}': {exc}"
+            ) from exc
+
     if store.exists(_CONFIG_PATH):
         try:
             raw = store.read_json(_CONFIG_PATH)
             return GuardianConfig(**raw)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise click.ClickException(
+                f"Failed to load local Guardian config '{_CONFIG_PATH}': {exc}"
+            ) from exc
     return GuardianConfig()
+
+
+def _active_copy_path(config: GuardianConfig) -> str:
+    try:
+        return active_copy_store_path(config.north_star.active_copy_path)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _is_ephemeral_ci() -> bool:
+    """Return whether this process runs in a GitHub-hosted ephemeral checkout."""
+    return os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+
+
+def _is_trusted_commenter(ctx: GitHubContext) -> bool:
+    """Restrict secret-backed slash commands to repository collaborators."""
+    association = str(ctx.event_payload.get("comment", {}).get("author_association", "")).upper()
+    return association in {"OWNER", "MEMBER", "COLLABORATOR"}
 
 
 def _load_review_north_star(
@@ -55,8 +112,10 @@ def _load_review_north_star(
     pr_meta: dict[str, Any],
     *,
     env: dict[str, str] | None = None,
+    persist: bool = True,
+    allow_linear_refresh: bool | None = None,
 ) -> Any:
-    """Load the North Star snapshot for a review run and persist active copy."""
+    """Load the pinned review policy and optionally update the active copy."""
     environ = env if env is not None else os.environ
     _GUARDIAN_PREFIX = ".github/guardian/"
     _active = config.north_star.active_copy_path or ".github/guardian/northstar.md"
@@ -74,17 +133,59 @@ def _load_review_north_star(
                 "Guardian is configured for Linear North Star source but "
                 "linear.document_id is not set."
             )
-        api_key = environ.get("LINEAR_API_KEY")
+        can_refresh = (
+            allow_linear_refresh
+            if allow_linear_refresh is not None
+            else not bool(pr_meta.get("base_sha"))
+        )
+        api_key = environ.get("LINEAR_API_KEY") if persist and can_refresh else None
         if not api_key:
-            raise click.ClickException("LINEAR_API_KEY environment variable is not set.")
+            # Reviews always use the committed active snapshot at the base
+            # commit. Only an explicit trusted re-anchor may fetch live policy.
+            ref = pr_meta.get("base_sha") or None
+            try:
+                content = read_repo_north_star_markdown(
+                    root,
+                    path=config.north_star.active_copy_path,
+                    ref=ref,
+                )
+            except FileNotFoundError as exc:
+                if not persist:
+                    refresh_reason = "Live Linear refresh is disabled for this ephemeral operation"
+                elif not can_refresh:
+                    refresh_reason = "Live Linear refresh is disabled for pull request reviews"
+                else:
+                    refresh_reason = "LINEAR_API_KEY is not available"
+                raise click.ClickException(
+                    f"{refresh_reason}, and no committed active North Star snapshot "
+                    "exists at the PR base. Refresh and commit the active copy from a "
+                    "trusted run."
+                ) from exc
+            north_star = parse_north_star_markdown(content)
+            if persist:
+                store.write(northstar_path, content)
+                store.write_json(
+                    "memory/northstar-snapshot.json",
+                    {
+                        "source": "linear",
+                        "path": config.north_star.active_copy_path,
+                        "ref": ref,
+                        "fetched_at": datetime.now(tz=UTC).isoformat(),
+                        "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                        "snapshot_source": "committed active copy",
+                    },
+                )
+            return north_star
 
         snapshot = LinearClient(api_key).fetch_document(config.linear.document_id)
-        store.write(northstar_path, snapshot.content)
-        store.write_json(
-            "memory/northstar-snapshot.json",
-            snapshot.model_dump(mode="json"),
-        )
-        return parse_north_star_markdown(snapshot.content)
+        north_star = parse_north_star_markdown(snapshot.content)
+        if persist:
+            store.write(northstar_path, snapshot.content)
+            store.write_json(
+                "memory/northstar-snapshot.json",
+                snapshot.model_dump(mode="json"),
+            )
+        return north_star
 
     ref = pr_meta.get("base_sha") or None
     content = read_repo_north_star_markdown(
@@ -92,18 +193,20 @@ def _load_review_north_star(
         path=config.north_star.repo_path,
         ref=ref,
     )
-    store.write(northstar_path, content)
-    store.write_json(
-        "memory/northstar-snapshot.json",
-        {
-            "source": "repo",
-            "path": config.north_star.repo_path,
-            "ref": ref,
-            "fetched_at": datetime.now(tz=UTC).isoformat(),
-            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        },
-    )
-    return parse_north_star_markdown(content)
+    north_star = parse_north_star_markdown(content)
+    if persist:
+        store.write(northstar_path, content)
+        store.write_json(
+            "memory/northstar-snapshot.json",
+            {
+                "source": "repo",
+                "path": config.north_star.repo_path,
+                "ref": ref,
+                "fetched_at": datetime.now(tz=UTC).isoformat(),
+                "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            },
+        )
+    return north_star
 
 
 def _create_linear_amendment_issue(
@@ -285,10 +388,9 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
 
     root = Path(repo_root or ".").resolve()
     store = MemoryStore(root)
-    store.ensure_initialized()
-
-    config = _load_config(store)
-    client = _make_openai_client()
+    persist_state = not _is_ephemeral_ci()
+    if persist_state:
+        store.ensure_initialized()
 
     # Build GitHub context.
     ctx = GitHubContext.from_env(event_path=event_path)
@@ -297,15 +399,40 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
 
     click.echo(f"Guardian: interviewing PR #{ctx.pr.number}")
 
-    # 1. Read diff and metadata.
-    diff = get_pr_diff(ctx)
+    # Pin both policy and runtime configuration to the PR base so the PR cannot
+    # redirect its own review by changing guardian-config.json.
     meta = get_pr_meta(ctx)
+    config = _load_config(store, repo_root=root, ref=meta.get("base_sha"))
+    client = _make_openai_client()
+
+    # Fetch file metadata once. GitHub omits patches for binary/large files,
+    # but their paths and change counts still belong in the interview context.
+    pr_files = list(ctx.pr.get_files())
+    diff = get_pr_diff(ctx, files=pr_files)
+    patchless_files = [
+        {
+            "path": file.filename,
+            "status": file.status,
+            "additions": file.additions,
+            "deletions": file.deletions,
+        }
+        for file in pr_files
+        if not file.patch
+    ]
 
     # 2. Analyze diff (pre-LLM structural extraction).
-    diff_analysis = analyze.analyze_diff(diff, meta)
+    diff_analysis = analyze.analyze_diff(diff, meta, patchless_files=patchless_files)
 
-    # 3. Load the base-branch/Linear North Star and persist Guardian's active copy.
-    north_star = _load_review_north_star(root, store, config, meta)
+    # 3. Load the policy pinned to the base. GitHub-hosted checkouts are
+    # ephemeral, so review runs there must not claim repo-native state persisted.
+    north_star = _load_review_north_star(
+        root,
+        store,
+        config,
+        meta,
+        persist=persist_state,
+        allow_linear_refresh=False,
+    )
 
     # 4. Run LLM interview.
     report = analyze.run_interview(
@@ -313,36 +440,95 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         north_star,
         client=client,
         model=config.openai_model_analysis,
+        pr_meta=meta,
     )
 
-    # 5. Load existing sagas and assign the saga for this PR.
-    # _load_saga_index and _saga_from_index_entry are module-internal helpers;
-    # accessing them is acceptable here since cli.py is a first-party sibling.
-    saga_index = chronicle._load_saga_index(store)
-    all_sagas = [chronicle._saga_from_index_entry(entry) for entry in saga_index.get("sagas", [])]
-    saga = chronicle.assign_saga(
-        store,
-        report.intent,
-        all_sagas,
-        client=client,
-        model=config.openai_model_analysis,
-    )
-    chronicle.update_saga(store, saga, report.pr_number)
-    report = report.model_copy(update={"saga_id": saga.id})
+    if persist_state:
+        # 5. Load existing sagas and assign the saga for this PR.
+        # _load_saga_index and _saga_from_index_entry are module-internal helpers;
+        # accessing them is acceptable here since cli.py is a first-party sibling.
+        saga_index = chronicle._load_saga_index(store)
+        all_sagas = [
+            chronicle._saga_from_index_entry(entry) for entry in saga_index.get("sagas", [])
+        ]
+        saga = chronicle.assign_saga(
+            store,
+            report.intent,
+            all_sagas,
+            client=client,
+            model=config.openai_model_analysis,
+        )
+        chronicle.update_saga(store, saga, report.pr_number)
+        report = report.model_copy(update={"saga_id": saga.id})
 
-    # 6. Write journal entry.
-    chronicle.write_journal_entry(store, report, saga)
+        # 6. Write journal entry.
+        chronicle.write_journal_entry(store, report, saga)
 
-    # 7. Render dashboard.
-    dashboard.render_dashboard(store, north_star)
+        # 7. Record drift and declared variances for persistent runs.
+        from guardian import governance
+        from guardian.models import DriftSeverity, Verdict
 
-    # 8. Flush repo-native Guardian state.
-    pr_num = ctx.pr.number
-    with store.session(f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"):
-        pass  # session commits whatever was staged by the above calls
+        for evaluation in report.principle_evaluations:
+            if evaluation.verdict == Verdict.DRIFT:
+                governance.log_drift(
+                    store,
+                    pr_number=report.pr_number,
+                    principle_id=evaluation.principle_id,
+                    severity=DriftSeverity.MEDIUM,
+                    details=evaluation.reasoning or "Principle evaluation returned drift.",
+                )
+
+        for match in report.anti_pattern_matches:
+            governance.log_drift(
+                store,
+                pr_number=report.pr_number,
+                principle_id="anti-pattern",
+                severity=DriftSeverity.HIGH,
+                details=f"Detected pattern: {match.pattern_id}. {match.explanation}",
+            )
+
+        affected_paths = [file.path for file in diff_analysis.files]
+        for variance in report.intent.declared_variances:
+            governance.grant_variance(
+                store,
+                variance,
+                pr_number=report.pr_number,
+                config=config,
+                affected_paths=affected_paths,
+            )
+
+        # 8. Render optional dashboard and report expired debt. Dashboard
+        # state must not prevent posting the completed interview report.
+        try:
+            dashboard.render_dashboard(store, north_star)
+        except Exception as exc:
+            click.echo(
+                "WARNING: Guardian dashboard could not be completed; "
+                "the interview report will still be posted. "
+                f"Details: {exc}"
+            )
+        try:
+            debt_status = governance.check_debt_timers(store)
+        except Exception as exc:
+            click.echo(f"WARNING: Debt timer status is unavailable. Details: {exc}")
+        else:
+            if debt_status["expired"]:
+                click.echo(f"WARNING: {len(debt_status['expired'])} expired debt timers found!")
+
+        # 9. Flush repo-native Guardian state.
+        pr_num = ctx.pr.number
+        with store.session(f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"):
+            pass  # session commits whatever was staged by the above calls
 
     # 9. Post report as a PR comment.
     comment_body = _format_report_comment(report, config)
+    if not persist_state:
+        comment_body += (
+            "\n\n---\n"
+            "**State note:** This GitHub Actions run evaluated the PR and posted this "
+            "comment, but its ephemeral checkout did not save saga, journal, drift, "
+            "debt-timer, dashboard, or active-copy changes."
+        )
     post_pr_comment(ctx, comment_body)
 
     click.echo(f"Guardian: interview complete — verdict: {report.overall_verdict.value}")
@@ -382,9 +568,6 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
     cmd, args = parsed
     click.echo(f"Guardian: dispatching /{cmd} with args {args!r}")
 
-    store.ensure_initialized()
-    config = _load_config(store)
-
     handlers: dict[str, Any] = {
         "init-guardian": _handle_init_guardian,
         "re-anchor": _handle_re_anchor,
@@ -393,6 +576,42 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
         "dashboard": _handle_dashboard,
         "status": _handle_status,
     }
+
+    if _is_ephemeral_ci() and cmd in {"re-anchor", "dashboard"}:
+        reply = (
+            "Guardian: this command can mutate Guardian state, but GitHub Actions "
+            "uses an ephemeral checkout with no durable state backend configured. "
+            "Run it in a persistent checkout to apply the change."
+        )
+        if ctx.pr:
+            post_pr_comment(ctx, reply)
+        else:
+            click.echo(reply)
+        return
+    if _is_ephemeral_ci() and cmd == "amend" and not _is_trusted_commenter(ctx):
+        reply = (
+            "Guardian: `/amend` is available in GitHub Actions only to repository collaborators."
+        )
+        if ctx.pr:
+            post_pr_comment(ctx, reply)
+        else:
+            click.echo(reply)
+        return
+
+    store.ensure_initialized()
+    config = _load_config(store)
+
+    if _is_ephemeral_ci() and cmd == "amend" and config.north_star.source != "linear":
+        reply = (
+            "Guardian: repo-backed `/amend` changes a checkout file, but GitHub "
+            "Actions uses an ephemeral checkout with no durable state backend. "
+            "Run it in a persistent checkout to apply the change."
+        )
+        if ctx.pr:
+            post_pr_comment(ctx, reply)
+        else:
+            click.echo(reply)
+        return
 
     handler = handlers.get(cmd)
     if handler is None:
@@ -444,17 +663,30 @@ def _handle_re_anchor(
     config: GuardianConfig,
     args: list[str],
 ) -> None:
-    """Handle /re-anchor — show current North Star summary and instructions."""
+    """Refresh the active copy from its configured source and show a summary."""
     try:
-        north_star = read_north_star(store)
+        if config.north_star.source == "linear" and not os.environ.get("LINEAR_API_KEY"):
+            raise click.ClickException(
+                "LINEAR_API_KEY is required to refresh the configured Linear North Star."
+            )
+        north_star = _load_review_north_star(
+            store.repo_root,
+            store,
+            config,
+            {},
+            persist=True,
+            allow_linear_refresh=True,
+        )
         principles_text = "\n".join(f"{p.rank}. {p.text}" for p in north_star.principles)
         reply = (
             f"## Guardian Re-Anchor\n\n"
             f"**Current identity:** {north_star.identity_statement}\n\n"
             f"**Principles:**\n{principles_text}\n\n"
-            "Re-anchoring to current North Star sources. "
-            "Run /show-northstar to verify the updated anchor."
+            "The configured North Star source was refreshed and the active copy was "
+            f"updated at `{config.north_star.active_copy_path}`."
         )
+    except click.ClickException as exc:
+        reply = f"Guardian: {exc.format_message()}"
     except FileNotFoundError:
         reply = (
             "Guardian: no active North Star found. Run `guardian init-local` "
@@ -503,6 +735,17 @@ def _handle_amend(
                 f"Created `{issue.identifier}` for review: {issue.url}"
             )
         else:
+            if config.north_star.source == "repo":
+                repo_root = getattr(store, "repo_root", None)
+                if not isinstance(repo_root, Path):
+                    raise click.ClickException("Repo-backed amendments require a repository root.")
+                source = read_repo_north_star(repo_root, path=config.north_star.repo_path)
+                write_north_star(
+                    store,
+                    source,
+                    rationale="Refresh repo-backed North Star before amendment",
+                    path=_active_copy_path(config),
+                )
             updated = amend_north_star(
                 store,
                 target="principle",
@@ -510,15 +753,32 @@ def _handle_amend(
                 after=new_text,
                 rationale=f"Amended via /amend slash command by @{actor}",
                 actor=actor,
+                **(
+                    {"path": _active_copy_path(config)}
+                    if config.north_star.active_copy_path != ".github/guardian/northstar.md"
+                    else {}
+                ),
             )
+            if config.north_star.source == "repo":
+                repo_root = getattr(store, "repo_root", None)
+                if isinstance(repo_root, Path):
+                    if config.north_star.repo_path == "docs/northstar.md":
+                        write_repo_north_star(repo_root, updated)
+                    else:
+                        write_repo_north_star(repo_root, updated, path=config.north_star.repo_path)
             with store.session(f"guardian: amend principle {target_id} via slash command"):
                 pass
 
+            repo_source_note = (
+                f" It also updates the repo-backed source `{config.north_star.repo_path}`."
+                if config.north_star.source == "repo"
+                else ""
+            )
             reply = (
                 f"## Guardian Amendment Applied\n\n"
                 f"**Principle `{target_id}`** updated to:\n\n"
                 f"> {new_text}\n\n"
-                f"North Star version is now **v{updated.version}**."
+                f"North Star version is now **v{updated.version}**.{repo_source_note}"
             )
     except (ValueError, FileNotFoundError, click.ClickException) as exc:
         reply = f"Guardian: amendment failed — {exc}"
@@ -569,7 +829,7 @@ def _handle_dashboard(
     from guardian import dashboard
 
     try:
-        north_star = read_north_star(store)
+        north_star = read_north_star(store, path=_active_copy_path(config))
         dashboard.render_dashboard(store, north_star)
         with store.session("guardian: regenerate dashboard via /dashboard command"):
             pass
@@ -662,6 +922,13 @@ def sweep_debt(repo_root: str | None) -> None:
     """Scheduled job: check debt timers and escalate expired ones."""
     from guardian import governance
 
+    if _is_ephemeral_ci():
+        click.echo(
+            "Guardian sweep-debt: skipped because GitHub Actions uses an ephemeral "
+            "checkout and no durable state backend is configured."
+        )
+        return
+
     root = Path(repo_root or ".").resolve()
     store = MemoryStore(root)
     store.ensure_initialized()
@@ -713,12 +980,13 @@ def sweep_debt(repo_root: str | None) -> None:
             )
         body = "\n".join(lines)
 
-        repo.create_issue(
-            title=f"Guardian: {len(expired)} expired debt timer(s) — {datetime.now(tz=UTC).strftime('%Y-%m-%d')}",
-            body=body,
-            labels=["guardian", "tech-debt"],
-        )
-        click.echo("Guardian sweep-debt: tracking issue created.")
+        if expired:
+            repo.create_issue(
+                title=f"Guardian: {len(expired)} expired debt timer(s) — {datetime.now(tz=UTC).strftime('%Y-%m-%d')}",
+                body=body,
+                labels=["guardian", "tech-debt"],
+            )
+            click.echo("Guardian sweep-debt: tracking issue created.")
 
 
 # ---------------------------------------------------------------------------
@@ -735,6 +1003,12 @@ def sweep_debt(repo_root: str | None) -> None:
 )
 def init_local(repo_root: str) -> None:
     """Interactive setup: walk through North Star initialization locally."""
+    if _is_ephemeral_ci():
+        raise click.ClickException(
+            "guardian init-local cannot persist changes from an ephemeral GitHub "
+            "Actions checkout; run it in a persistent checkout."
+        )
+
     root = Path(repo_root).resolve()
     store = MemoryStore(root)
 
@@ -800,8 +1074,21 @@ def init_local(repo_root: str) -> None:
 
     click.echo("\nInitializing .github/guardian state...")
     store.ensure_initialized()
-    write_repo_north_star(root, north_star)
-    write_north_star(store, north_star, rationale="Initial North Star via init-local")
+    config = _load_config(store)
+    active_path = _active_copy_path(config)
+    if config.north_star.repo_path == "docs/northstar.md":
+        write_repo_north_star(root, north_star)
+    else:
+        write_repo_north_star(root, north_star, path=config.north_star.repo_path)
+    if config.north_star.active_copy_path == ".github/guardian/northstar.md":
+        write_north_star(store, north_star, rationale="Initial North Star via init-local")
+    else:
+        write_north_star(
+            store,
+            north_star,
+            rationale="Initial North Star via init-local",
+            path=active_path,
+        )
     if not store.exists(_CONFIG_PATH):
         store.write_json(_CONFIG_PATH, GuardianConfig().model_dump(mode="json"))
 
@@ -813,8 +1100,8 @@ def init_local(repo_root: str) -> None:
         f"{len(north_star.principles)} principles and "
         f"{len(north_star.anti_patterns)} anti-patterns."
     )
-    click.echo("Repo source: docs/northstar.md")
-    click.echo("Guardian active copy: .github/guardian/northstar.md")
+    click.echo(f"Repo source: {config.north_star.repo_path}")
+    click.echo(f"Guardian active copy: {config.north_star.active_copy_path}")
     click.echo("Guardian is ready.")
 
 
@@ -842,14 +1129,20 @@ def preview_dashboard(output: str, repo_root: str) -> None:
 
     root = Path(repo_root).resolve()
     store = MemoryStore(root)
+    if _is_ephemeral_ci():
+        raise click.ClickException(
+            "guardian preview-dashboard cannot preserve its output from an ephemeral "
+            "GitHub Actions checkout; run it in a persistent checkout."
+        )
     store.ensure_initialized()
 
+    config = _load_config(store)
     try:
-        north_star = read_north_star(store)
+        north_star = read_north_star(store, path=_active_copy_path(config))
     except FileNotFoundError as err:
         raise click.ClickException(
             "No Guardian active North Star found at "
-            "`.github/guardian/northstar.md`. Run `guardian init-local` first."
+            f"`{config.north_star.active_copy_path}`. Run `guardian init-local` first."
         ) from err
 
     html = dashboard.render_dashboard(store, north_star)

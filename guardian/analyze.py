@@ -11,6 +11,7 @@ Implements:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing import Any
 
 import unidiff
 from jinja2 import Environment, FileSystemLoader
+from openai import OpenAIError
 
 from guardian.models import (
     AntiPatternMatch,
@@ -30,6 +32,8 @@ from guardian.models import (
     VarianceTag,
     Verdict,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -101,7 +105,11 @@ _VARIANCE_PRINC_RE = re.compile(r"^([A-Za-z0-9_\-\.]+)")
 # ---------------------------------------------------------------------------
 
 
-def analyze_diff(unified_diff: str, pr_meta: dict[str, Any]) -> DiffAnalysis:
+def analyze_diff(
+    unified_diff: str,
+    pr_meta: dict[str, Any],
+    patchless_files: list[dict[str, Any]] | None = None,
+) -> DiffAnalysis:
     """Parse *unified_diff* and extract structural information.
 
     Parameters
@@ -176,6 +184,26 @@ def analyze_diff(unified_diff: str, pr_meta: dict[str, Any]) -> DiffAnalysis:
                 if name:
                     new_packages.append(name)
 
+    known_paths = {file_change.path for file_change in file_changes}
+    for file_meta in patchless_files or []:
+        path = str(file_meta.get("path") or "")
+        if not path or path in known_paths:
+            continue
+        raw_status = file_meta.get("status")
+        status = (
+            raw_status if raw_status in {"added", "modified", "removed", "renamed"} else "modified"
+        )
+        file_changes.append(
+            FileChange(
+                path=path,
+                status=status,
+                additions=int(file_meta.get("additions") or 0),
+                deletions=int(file_meta.get("deletions") or 0),
+                patch_available=False,
+            )
+        )
+        known_paths.add(path)
+
     total_additions = sum(f.additions for f in file_changes)
     total_deletions = sum(f.deletions for f in file_changes)
 
@@ -238,7 +266,7 @@ def _call_llm(
     messages.append({"role": "user", "content": user})
     response = client.chat.completions.create(
         model=model,
-        max_tokens=max_tokens,
+        max_completion_tokens=max_tokens,
         messages=messages,
     )
     if not response.choices or response.choices[0].message.content is None:
@@ -252,18 +280,18 @@ def _call_llm(
 def _parse_json_response(raw: str, context: str) -> Any:
     """Strip optional markdown fences and parse JSON from *raw*.
 
+    Supports extracting JSON from within markdown code blocks even when the
+    response includes preamble or notes.
+
     Raises LLMOutputError with *context* if parsing fails.
     """
-    text = raw.strip()
-    # Strip ```json ... ``` or ``` ... ``` fences if present
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    text = text.strip()
+    match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
+    text = match.group(1).strip() if match else raw.strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
         raise LLMOutputError(
-            f"JSON parse failure in {context}: {exc}\nRaw output:\n{raw[:500]}"
+            f"JSON parse failure in {context}: {exc}\nRaw output snippet:\n{raw[:1000]}"
         ) from exc
 
 
@@ -611,15 +639,19 @@ def _parse_variance_tags(text: str) -> list[VarianceTag]:
         days_match = _VARIANCE_DAYS_RE.search(body)
         expires_in_days = int(days_match.group(1)) if days_match else 7
 
-        # Build justification: strip principle id from front, strip days clause
-        justification = body
-        if princ_match:
-            justification = re.sub(r"^[\s\u2014\u2013:-]+", "", body[princ_match.end() :]).strip()
+        # Build justification: strip the principle id from the source before
+        # applying the expiry offset, then remove the "N days" fragment.
+        offset = princ_match.end() if princ_match else 0
+        justification_source = body[offset:]
         if days_match:
-            # Remove the "N days" fragment from the justification
-            justification = justification[: days_match.start()].rstrip(" ,;").strip()
-            if not justification:
-                justification = body  # fallback to full body
+            days_start = days_match.start() - offset
+            if days_start >= 0:
+                justification_source = justification_source[:days_start]
+        justification = (
+            re.sub(r"^[\s\u2014\u2013:-]+", "", justification_source).rstrip(" ,;").strip()
+        )
+        if not justification:
+            justification = body  # fallback to full body
 
         tags.append(
             VarianceTag(
@@ -651,7 +683,8 @@ def run_interview(
     1. assess_intent (PR title/body/commits → IntentSummary)
     2. evaluate_alignment (diff + North Star → per-principle verdicts)
     3. detect_anti_patterns (diff + anti-patterns registry → matches)
-    4. One more LLM call to draft the chronicle paragraph.
+    4. Draft the chronicle paragraph.
+    5. Draft optional actionable suggestions.
 
     Overall verdict: worst per-principle outcome (drift > ambiguous > aligned).
 
@@ -713,6 +746,16 @@ def run_interview(
         model=model,
     )
 
+    suggestions = _draft_suggestions(
+        diff=diff,
+        north_star=north_star,
+        intent=intent,
+        evaluations=evaluations,
+        overall_verdict=overall_verdict,
+        client=client,
+        model=model,
+    )
+
     return InterviewReport(
         pr_number=diff.pr_number,
         overall_verdict=overall_verdict,
@@ -720,7 +763,7 @@ def run_interview(
         principle_evaluations=evaluations,
         anti_pattern_matches=ap_matches,
         saga_id=None,  # saga assignment is handled by the chronicle module
-        suggestions=[],  # concrete suggestions are a downstream concern
+        suggestions=suggestions,
         chronicle_paragraph=chronicle_paragraph,
         intent=intent,
         created_at=datetime.now(tz=UTC),
@@ -773,3 +816,49 @@ def _draft_chronicle(
     )
 
     return _call_llm(client, model=model, system=system, user=user, max_tokens=512)
+
+
+def _draft_suggestions(
+    *,
+    diff: DiffAnalysis,
+    north_star: NorthStar,
+    intent: IntentSummary,
+    evaluations: list[PrincipleEvaluation],
+    overall_verdict: Verdict,
+    client: Any,
+    model: str,
+) -> list[str]:
+    """Ask the LLM for up to three concrete suggestions.
+
+    Suggestions are optional: malformed output and provider failures should not
+    prevent the core interview from completing. Unexpected programming errors
+    still propagate so they are visible to maintainers.
+    """
+    prompt = _render(
+        "draft_suggestions.md.j2",
+        diff=diff,
+        north_star=north_star,
+        intent=intent,
+        evaluations=evaluations,
+        overall_verdict=overall_verdict.value,
+    )
+
+    try:
+        raw = _call_llm(
+            client,
+            model=model,
+            system="You are the Repository Guardian. Suggest 1-3 improvements in a JSON array of strings.",
+            user=prompt,
+            max_tokens=256,
+        )
+        data = _parse_json_response(raw, "suggestions")
+        if isinstance(data, list):
+            return [str(s) for s in data][:3]
+        return []
+    except (LLMOutputError, OpenAIError) as exc:
+        _LOGGER.warning(
+            "Optional suggestions request failed (%s): %s; continuing without suggestions",
+            type(exc).__name__,
+            exc,
+        )
+        return []

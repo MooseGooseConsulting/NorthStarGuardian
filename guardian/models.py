@@ -22,7 +22,7 @@ from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # North Star
@@ -91,6 +91,7 @@ class FileChange(BaseModel):
     deletions: int
     new_imports: list[str] = Field(default_factory=list)
     removed_imports: list[str] = Field(default_factory=list)
+    patch_available: bool = True
 
 
 class DiffAnalysis(BaseModel):
@@ -264,3 +265,43 @@ class GuardianConfig(BaseModel):
 
     variance_default_days: int = 7
     pages_url: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_flat_source_settings(cls, value: object) -> object:
+        """Normalize legacy flat North Star and Linear fields to nested settings."""
+        if not isinstance(value, dict):
+            return value
+
+        data = dict(value)
+        north_star = dict(data.get("north_star") or {})
+        linear = dict(data.get("linear") or {})
+        aliases = {
+            "source": (north_star, "source"),
+            "north_star_source": (north_star, "source"),
+            "north_star_repo_path": (north_star, "repo_path"),
+            "repo_north_star_path": (north_star, "repo_path"),
+            "repo_path": (north_star, "repo_path"),
+            "north_star_active_copy_path": (north_star, "active_copy_path"),
+            "active_north_star_path": (north_star, "active_copy_path"),
+            "active_copy_path": (north_star, "active_copy_path"),
+            "linear_document_id": (linear, "document_id"),
+            "linear_workspace_url": (linear, "workspace_url"),
+            "linear_team_id": (linear, "team_id"),
+            "linear_project_id": (linear, "project_id"),
+            "linear_initiative_id": (linear, "initiative_id"),
+            "document_id": (linear, "document_id"),
+            "workspace_url": (linear, "workspace_url"),
+            "team_id": (linear, "team_id"),
+            "project_id": (linear, "project_id"),
+            "initiative_id": (linear, "initiative_id"),
+        }
+        for old_name, (section, field_name) in aliases.items():
+            if old_name in data:
+                section.setdefault(field_name, data.pop(old_name))
+
+        if north_star:
+            data["north_star"] = north_star
+        if linear:
+            data["linear"] = linear
+        return data

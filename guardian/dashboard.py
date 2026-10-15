@@ -15,6 +15,7 @@ result to ``memory/dashboard.html`` via store.write().
 from __future__ import annotations
 
 import re
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -38,7 +39,7 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 def _jinja_env() -> Environment:
     return Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-        autoescape=False,
+        autoescape=True,
         keep_trailing_newline=True,
     )
 
@@ -304,6 +305,39 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
     journal = read_chronicle(store)
     drift_events = _load_drift_events(store)
     sagas = _load_all_sagas(store)
+    from guardian.governance import check_debt_timers
+
+    debt_timer_error = False
+    try:
+        expired_timers = check_debt_timers(store)["expired"]
+    except (KeyError, TypeError, ValueError):
+        # Keep malformed optional governance state from hiding the interview
+        # results; the template reports that timer status is unavailable.
+        expired_timers = []
+        debt_timer_error = True
+    latest_change = max(journal, key=lambda entry: entry.timestamp, default=None)
+    latest_journal_by_pr = {}
+    for entry in journal:
+        previous = latest_journal_by_pr.get(entry.pr_number)
+        if previous is None or entry.timestamp > previous.timestamp:
+            latest_journal_by_pr[entry.pr_number] = entry
+    active_drift_events = [
+        event
+        for event in drift_events
+        if (
+            (latest_entry := latest_journal_by_pr.get(event.pr_number)) is None
+            or event.timestamp >= latest_entry.timestamp
+        )
+    ]
+    principle_ids = {principle.id for principle in north_star.principles}
+    active_principles = sorted(
+        Counter(
+            event.principle_id
+            for event in active_drift_events
+            if event.principle_id in principle_ids
+        ).items(),
+        key=lambda item: (-item[1], item[0]),
+    )
 
     gantt_src = generate_gantt(sagas)
     gitgraph_src = generate_gitgraph(drift_events, journal)
@@ -318,6 +352,11 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
         project_name=north_star.project_name,
         identity_statement=north_star.identity_statement,
         principles=north_star.principles,
+        latest_change=latest_change,
+        drift_events=active_drift_events,
+        expired_timers=expired_timers,
+        debt_timer_error=debt_timer_error,
+        active_principles=active_principles,
         gantt_src=gantt_src,
         gitgraph_src=gitgraph_src,
         quadrant_src=quadrant_src,
@@ -357,8 +396,9 @@ def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
         return []
     try:
         raw = store.read_json("memory/drift-ledger.json")
+        items = raw if isinstance(raw, list) else raw.get("events", [])
         events: list[DriftEvent] = []
-        for item in raw.get("events", []):
+        for item in items:
             events.append(DriftEvent(**item))
         return events
     except (ValueError, KeyError):

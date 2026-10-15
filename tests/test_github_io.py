@@ -133,7 +133,7 @@ class TestGetPrDiff:
         assert "diff --git" in result
 
     def test_binary_file_no_patch(self) -> None:
-        """Binary files without a patch are noted."""
+        """Files without a text patch do not add fake diff content."""
         mock_pr = MagicMock(spec=PullRequest)
         mock_file = MagicMock()
         mock_file.filename = "image.png"
@@ -145,7 +145,7 @@ class TestGetPrDiff:
 
         result = get_pr_diff(mock_ctx)
 
-        assert "binary or no patch" in result
+        assert result == ""
 
     def test_no_pr_raises(self) -> None:
         """get_pr_diff raises RuntimeError when ctx.pr is None."""

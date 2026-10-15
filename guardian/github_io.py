@@ -92,7 +92,7 @@ def post_pr_comment(ctx: GitHubContext, body: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def get_pr_diff(ctx: GitHubContext) -> str:
+def get_pr_diff(ctx: GitHubContext, files: list[Any] | None = None) -> str:
     """Return the unified diff for ``ctx.pr`` as a string.
 
     Uses the PyGithub ``files`` endpoint to reconstruct a unified diff.
@@ -102,12 +102,10 @@ def get_pr_diff(ctx: GitHubContext) -> str:
         raise RuntimeError("Cannot fetch diff: no PR in context")
 
     parts: list[str] = []
-    for f in ctx.pr.get_files():
+    for f in files if files is not None else ctx.pr.get_files():
         header = f"diff --git a/{f.filename} b/{f.filename}\n"
         if f.patch:
             parts.append(header + f.patch)
-        else:
-            parts.append(header + "(binary or no patch available)")
     return "\n".join(parts)
 
 

@@ -512,6 +512,16 @@ def _is_instruction_include_file(target: Path) -> bool:
     }
 
 
+def _is_instruction_include_file(target: Path) -> bool:
+    return target.name.lower() in {
+        "agents.md",
+        "claude.md",
+        "gemini.md",
+        "instructions.md",
+        "rules.md",
+    }
+
+
 def _adds_only_known_safe_include(before: str, after: str) -> bool:
     added_lines = _added_lines(before, after)
     if not added_lines:

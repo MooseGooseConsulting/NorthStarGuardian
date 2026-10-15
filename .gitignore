@@ -18,6 +18,7 @@ env/
 htmlcov/
 .idea/
 .vscode/
+.opencode/
 *.swp
 .DS_Store
 .omc/state/

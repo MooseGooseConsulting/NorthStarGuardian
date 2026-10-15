@@ -6,6 +6,7 @@ All LLM calls are mocked — no network access required.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,7 @@ import pytest
 
 from guardian.analyze import (
     LLMOutputError,
+    _draft_suggestions,
     _parse_variance_tags,
     analyze_diff,
     assess_intent,
@@ -785,7 +787,7 @@ class TestAssessIntentWithNorthStar:
 
 
 class TestRunInterview:
-    def _make_all_mock_client(self, north_star: NorthStar) -> MagicMock:
+    def _make_all_mock_client(self, north_star: NorthStar, count: int = 5) -> MagicMock:
         """Return a client that returns sensible JSON for each call in order."""
         intent_resp = json.dumps(
             {
@@ -822,10 +824,12 @@ class TestRunInterview:
         chronicle_resp = (
             "PR #42 added a new analysis step. It aligns with the declared architecture."
         )
+        suggestions_resp = '["Ensure tests cover the new step", "Update docs"]'
 
         client = MagicMock()
         responses = []
-        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
+        raw_texts = [intent_resp, alignment_resp, ap_resp, chronicle_resp, suggestions_resp]
+        for text in raw_texts[:count]:
             block = MagicMock()
             block.content = text
             choice = MagicMock()
@@ -888,10 +892,11 @@ class TestRunInterview:
         )
         ap_resp = "[]"
         chronicle_resp = "Drift detected."
+        suggestions_resp = "[]"
 
         client = MagicMock()
         responses = []
-        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
+        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp, suggestions_resp]:
             block = MagicMock()
             block.content = text
             choice = MagicMock()
@@ -936,9 +941,10 @@ class TestRunInterview:
         )
         ap_resp = "[]"
         chronicle_resp = "Ambiguous caching layer added."
+        suggestions_resp = "[]"
 
         responses = []
-        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
+        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp, suggestions_resp]:
             block = MagicMock()
             block.content = text
             choice = MagicMock()
@@ -952,11 +958,75 @@ class TestRunInterview:
         report = run_interview(diff, north_star, client=client, model="test")
         assert report.overall_verdict == Verdict.AMBIGUOUS
 
-    def test_run_interview_makes_four_llm_calls(
+    def test_run_interview_makes_five_llm_calls(
         self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = self._make_all_mock_client(north_star)
         run_interview(diff, north_star, client=client, model="test", pr_meta=simple_pr_meta)
-        # 1 assess_intent + 1 evaluate_alignment + 1 detect_anti_patterns + 1 chronicle
-        assert client.chat.completions.create.call_count == 4
+        # 1 intent + 1 alignment + 1 patterns + 1 chronicle + 1 suggestions
+        assert client.chat.completions.create.call_count == 5
+
+
+class TestDraftSuggestions:
+    def test_parses_valid_json_list(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = _make_client('["S1", "S2"]')
+
+        suggestions = _draft_suggestions(
+            diff=diff,
+            north_star=north_star,
+            intent=MagicMock(),
+            evaluations=[],
+            overall_verdict=Verdict.ALIGNED,
+            client=client,
+            model="test",
+        )
+
+        assert suggestions == ["S1", "S2"]
+
+    def test_provider_failure_is_optional_and_logged(
+        self,
+        north_star: NorthStar,
+        simple_pr_meta: dict[str, Any],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from openai import OpenAIError
+
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = MagicMock()
+        client.chat.completions.create.side_effect = OpenAIError("temporary service outage")
+
+        with caplog.at_level(logging.WARNING, logger="guardian.analyze"):
+            suggestions = _draft_suggestions(
+                diff=diff,
+                north_star=north_star,
+                intent=MagicMock(),
+                evaluations=[],
+                overall_verdict=Verdict.ALIGNED,
+                client=client,
+                model="test",
+            )
+
+        assert suggestions == []
+        assert "temporary service outage" in caplog.text
+
+    def test_unexpected_errors_propagate(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = MagicMock()
+        client.chat.completions.create.side_effect = RuntimeError("unexpected bug")
+
+        with pytest.raises(RuntimeError, match="unexpected bug"):
+            _draft_suggestions(
+                diff=diff,
+                north_star=north_star,
+                intent=MagicMock(),
+                evaluations=[],
+                overall_verdict=Verdict.ALIGNED,
+                client=client,
+                model="test",
+            )
