@@ -563,6 +563,44 @@ class TestRenderDashboard:
         )[0]
         assert "p1" in active_principles
 
+    def test_new_drift_after_aligned_journal_is_visible(self) -> None:
+        store = self._make_store_with_data()
+        store.write(
+            "memory/journal/2026-02-06-pr-2.md",
+            "\n".join(
+                [
+                    "---",
+                    "pr_number: 2",
+                    "saga_id: auth-overhaul",
+                    "verdict: aligned",
+                    "timestamp: 2026-02-06 00:00:00 UTC",
+                    "---",
+                    "The PR was aligned at this point.",
+                ]
+            ),
+        )
+        new_event = DriftEvent(
+            id="new-drift",
+            pr_number=2,
+            principle_id="p1",
+            severity=DriftSeverity.HIGH,
+            details="A new drift was logged after the aligned journal.",
+            timestamp=datetime(2026, 2, 7, tzinfo=UTC),
+        )
+        store.write_json(
+            "memory/drift-ledger.json",
+            {"events": [event.model_dump(mode="json") for event in [new_event]]},
+        )
+
+        html = render_dashboard(store, _make_north_star())
+        drift_overview = html.split("<!-- What is Drifting -->", 1)[1].split(
+            "<!-- What is Overdue -->", 1
+        )[0]
+        drift_text = " ".join(_parse_html(drift_overview).full_text().split())
+
+        assert "1 Active Drift Event" in drift_text
+        assert "A new drift was logged after the aligned journal." in drift_text
+
     def test_mermaid_directives_embedded(self) -> None:
         store = self._make_store_with_data()
         north_star = _make_north_star()
