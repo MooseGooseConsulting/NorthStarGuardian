@@ -538,6 +538,31 @@ class TestRenderDashboard:
         assert "No active drift detected." in drift_overview
         assert "Whisper import found." not in drift_overview
 
+    def test_drift_without_readable_journal_remains_visible(self) -> None:
+        store = FakeStore()
+        event = DriftEvent(
+            id="orphan-drift",
+            pr_number=3,
+            principle_id="p1",
+            severity=DriftSeverity.HIGH,
+            details="No readable journal entry exists.",
+            timestamp=datetime(2026, 2, 5, tzinfo=UTC),
+        )
+        store.write_json("memory/drift-ledger.json", {"events": [event.model_dump(mode="json")]})
+
+        html = render_dashboard(store, _make_north_star())
+        drift_overview = html.split("<!-- What is Drifting -->", 1)[1].split(
+            "<!-- What is Overdue -->", 1
+        )[0]
+        drift_text = " ".join(_parse_html(drift_overview).full_text().split())
+
+        assert "1 Active Drift Event" in drift_text
+        assert "PR #3" in drift_text
+        active_principles = html.split("<!-- Most Active Principles -->", 1)[1].split(
+            "<!-- Saga Timeline -->", 1
+        )[0]
+        assert "p1" in active_principles
+
     def test_mermaid_directives_embedded(self) -> None:
         store = self._make_store_with_data()
         north_star = _make_north_star()

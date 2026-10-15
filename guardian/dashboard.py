@@ -324,9 +324,13 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
     active_drift_events = [
         event
         for event in drift_events
-        if (latest_entry := latest_journal_by_pr.get(event.pr_number)) is not None
-        and event.timestamp >= latest_entry.timestamp
-        and (latest_entry.verdict == Verdict.DRIFT or event.principle_id == "anti-pattern")
+        if (
+            (latest_entry := latest_journal_by_pr.get(event.pr_number)) is None
+            or (
+                event.timestamp >= latest_entry.timestamp
+                and (latest_entry.verdict == Verdict.DRIFT or event.principle_id == "anti-pattern")
+            )
+        )
     ]
     principle_ids = {principle.id for principle in north_star.principles}
     active_principles = sorted(
