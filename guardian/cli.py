@@ -501,13 +501,16 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         # state must not prevent posting the completed interview report.
         try:
             dashboard.render_dashboard(store, north_star)
-            debt_status = governance.check_debt_timers(store)
         except Exception as exc:
             click.echo(
                 "WARNING: Guardian dashboard could not be completed; "
                 "the interview report will still be posted. "
                 f"Details: {exc}"
             )
+        try:
+            debt_status = governance.check_debt_timers(store)
+        except Exception as exc:
+            click.echo(f"WARNING: Debt timer status is unavailable. Details: {exc}")
         else:
             if debt_status["expired"]:
                 click.echo(f"WARNING: {len(debt_status['expired'])} expired debt timers found!")

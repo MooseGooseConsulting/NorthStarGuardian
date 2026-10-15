@@ -617,6 +617,11 @@ class TestInterview:
                 ),
                 patch.object(governance_mod, "log_drift") as log_drift,
                 patch.object(governance_mod, "grant_variance") as grant_variance,
+                patch.object(
+                    governance_mod,
+                    "check_debt_timers",
+                    return_value={"expired": [MagicMock()]},
+                ) as check_debt_timers,
             ):
                 result = runner.invoke(
                     cli,
@@ -628,6 +633,8 @@ class TestInterview:
         assert log_drift.call_count == 2
         assert grant_variance.call_args.kwargs["affected_paths"] == ["src/example.py"]
         assert "interview report will still be posted" in result.output
+        assert "1 expired debt timers found" in result.output
+        check_debt_timers.assert_called_once_with(mock_store)
         mock_post.assert_called_once()
         # The comment body should mention the PR number.
         comment_body = mock_post.call_args[0][1]
