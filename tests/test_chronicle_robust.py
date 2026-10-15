@@ -18,6 +18,7 @@ Body content"""
     assert entry.pr_number == 123
     assert entry.timestamp.year == 2024
 
+
 def test_load_journal_entry_malformed():
     mock_store = MagicMock(spec=MemoryStore)
     mock_store.read.return_value = "not a journal"

@@ -12,10 +12,12 @@ Hope this helps!
     result = _parse_json_response(raw, "test")
     assert result["verdict"] == "aligned"
 
+
 def test_parse_json_response_without_fences():
     raw = '{"verdict": "drift"}'
     result = _parse_json_response(raw, "test")
     assert result["verdict"] == "drift"
+
 
 def test_analyze_diff_handles_empty_diff():
     # If the string doesn't even have "---" or "+++" unidiff might just return empty

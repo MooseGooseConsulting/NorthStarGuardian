@@ -99,9 +99,7 @@ def _is_ephemeral_ci() -> bool:
 
 def _is_trusted_commenter(ctx: GitHubContext) -> bool:
     """Restrict secret-backed slash commands to repository collaborators."""
-    association = str(
-        ctx.event_payload.get("comment", {}).get("author_association", "")
-    ).upper()
+    association = str(ctx.event_payload.get("comment", {}).get("author_association", "")).upper()
     return association in {"OWNER", "MEMBER", "COLLABORATOR"}
 
 
@@ -151,13 +149,9 @@ def _load_review_north_star(
                 )
             except FileNotFoundError as exc:
                 if not persist:
-                    refresh_reason = (
-                        "Live Linear refresh is disabled for this ephemeral operation"
-                    )
+                    refresh_reason = "Live Linear refresh is disabled for this ephemeral operation"
                 elif not can_refresh:
-                    refresh_reason = (
-                        "Live Linear refresh is disabled for pull request reviews"
-                    )
+                    refresh_reason = "Live Linear refresh is disabled for pull request reviews"
                 else:
                     refresh_reason = "LINEAR_API_KEY is not available"
                 raise click.ClickException(
@@ -448,8 +442,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         # accessing them is acceptable here since cli.py is a first-party sibling.
         saga_index = chronicle._load_saga_index(store)
         all_sagas = [
-            chronicle._saga_from_index_entry(entry)
-            for entry in saga_index.get("sagas", [])
+            chronicle._saga_from_index_entry(entry) for entry in saga_index.get("sagas", [])
         ]
         saga = chronicle.assign_saga(
             store,
@@ -541,7 +534,9 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
             click.echo(reply)
         return
     if _is_ephemeral_ci() and cmd == "amend" and not _is_trusted_commenter(ctx):
-        reply = "Guardian: `/amend` is available in GitHub Actions only to repository collaborators."
+        reply = (
+            "Guardian: `/amend` is available in GitHub Actions only to repository collaborators."
+        )
         if ctx.pr:
             post_pr_comment(ctx, reply)
         else:
@@ -551,11 +546,7 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
     store.ensure_initialized()
     config = _load_config(store)
 
-    if (
-        _is_ephemeral_ci()
-        and cmd == "amend"
-        and config.north_star.source != "linear"
-    ):
+    if _is_ephemeral_ci() and cmd == "amend" and config.north_star.source != "linear":
         reply = (
             "Guardian: repo-backed `/amend` changes a checkout file, but GitHub "
             "Actions uses an ephemeral checkout with no durable state backend. "
@@ -679,12 +670,8 @@ def _handle_amend(
             if config.north_star.source == "repo":
                 repo_root = getattr(store, "repo_root", None)
                 if not isinstance(repo_root, Path):
-                    raise click.ClickException(
-                        "Repo-backed amendments require a repository root."
-                    )
-                source = read_repo_north_star(
-                    repo_root, path=config.north_star.repo_path
-                )
+                    raise click.ClickException("Repo-backed amendments require a repository root.")
+                source = read_repo_north_star(repo_root, path=config.north_star.repo_path)
                 write_north_star(
                     store,
                     source,
@@ -700,8 +687,7 @@ def _handle_amend(
                 actor=actor,
                 **(
                     {"path": _active_copy_path(config)}
-                    if config.north_star.active_copy_path
-                    != ".github/guardian/northstar.md"
+                    if config.north_star.active_copy_path != ".github/guardian/northstar.md"
                     else {}
                 ),
             )
@@ -711,9 +697,7 @@ def _handle_amend(
                     if config.north_star.repo_path == "docs/northstar.md":
                         write_repo_north_star(repo_root, updated)
                     else:
-                        write_repo_north_star(
-                            repo_root, updated, path=config.north_star.repo_path
-                        )
+                        write_repo_north_star(repo_root, updated, path=config.north_star.repo_path)
             with store.session(f"guardian: amend principle {target_id} via slash command"):
                 pass
 
@@ -1029,9 +1013,7 @@ def init_local(repo_root: str) -> None:
     else:
         write_repo_north_star(root, north_star, path=config.north_star.repo_path)
     if config.north_star.active_copy_path == ".github/guardian/northstar.md":
-        write_north_star(
-            store, north_star, rationale="Initial North Star via init-local"
-        )
+        write_north_star(store, north_star, rationale="Initial North Star via init-local")
     else:
         write_north_star(
             store,

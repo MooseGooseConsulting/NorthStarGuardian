@@ -191,9 +191,7 @@ def analyze_diff(
             continue
         raw_status = file_meta.get("status")
         status = (
-            raw_status
-            if raw_status in {"added", "modified", "removed", "renamed"}
-            else "modified"
+            raw_status if raw_status in {"added", "modified", "removed", "renamed"} else "modified"
         )
         file_changes.append(
             FileChange(
@@ -649,9 +647,9 @@ def _parse_variance_tags(text: str) -> list[VarianceTag]:
             days_start = days_match.start() - offset
             if days_start >= 0:
                 justification_source = justification_source[:days_start]
-        justification = re.sub(
-            r"^[\s\u2014\u2013:-]+", "", justification_source
-        ).rstrip(" ,;").strip()
+        justification = (
+            re.sub(r"^[\s\u2014\u2013:-]+", "", justification_source).rstrip(" ,;").strip()
+        )
         if not justification:
             justification = body  # fallback to full body
 

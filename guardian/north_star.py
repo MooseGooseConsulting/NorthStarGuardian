@@ -193,6 +193,7 @@ def _anti_pattern_body_lines(anti_patterns: list[AntiPattern]) -> list[str]:
 # Core I/O
 # ---------------------------------------------------------------------------
 
+
 def read_north_star(store: MemoryStore, path: str = _NORTH_STAR_PATH) -> NorthStar:
     """Read and parse Guardian's active North Star copy."""
     text = store.read(path)
@@ -212,6 +213,7 @@ def write_north_star(
 # ---------------------------------------------------------------------------
 # Repo source-of-truth I/O
 # ---------------------------------------------------------------------------
+
 
 def _resolve_repo_path(repo_root: Path, path: str) -> Path:
     relative = Path(path)
@@ -248,9 +250,7 @@ def read_repo_file_at_ref(repo_root: Path, path: str, ref: str) -> str:
         text=True,
     )
     if result.returncode != 0:
-        raise FileNotFoundError(
-            f"{path} was not found at git ref {ref}: {result.stderr.strip()}"
-        )
+        raise FileNotFoundError(f"{path} was not found at git ref {ref}: {result.stderr.strip()}")
     return result.stdout
 
 
@@ -282,9 +282,7 @@ def read_repo_north_star(
     ref: str | None = None,
 ) -> NorthStar:
     """Read and parse the repo-authored North Star."""
-    return parse_north_star_markdown(
-        read_repo_north_star_markdown(repo_root, path=path, ref=ref)
-    )
+    return parse_north_star_markdown(read_repo_north_star_markdown(repo_root, path=path, ref=ref))
 
 
 def write_repo_north_star(
@@ -301,6 +299,7 @@ def write_repo_north_star(
 # ---------------------------------------------------------------------------
 # Amendment
 # ---------------------------------------------------------------------------
+
 
 def amend_north_star(
     store: MemoryStore,
@@ -405,14 +404,14 @@ def append_amendment(store: MemoryStore, amendment: Amendment) -> None:
         existing = store.read(_AMENDMENT_LOG_PATH)
 
     entry = textwrap.dedent(f"""\
-        ## {amendment.timestamp.strftime('%Y-%m-%d %H:%M UTC')} — {amendment.target}
+        ## {amendment.timestamp.strftime("%Y-%m-%d %H:%M UTC")} — {amendment.target}
 
         - **Actor:** {amendment.actor}
-        - **Target:** {amendment.target}{f' / {amendment.target_id}' if amendment.target_id else ''}
+        - **Target:** {amendment.target}{f" / {amendment.target_id}" if amendment.target_id else ""}
         - **Rationale:** {amendment.rationale}
 
         **Before:**
-        {amendment.before or '*(none)*'}
+        {amendment.before or "*(none)*"}
 
         **After:**
         {amendment.after}
@@ -432,6 +431,7 @@ def append_amendment(store: MemoryStore, amendment: Amendment) -> None:
 # ---------------------------------------------------------------------------
 # Initialize
 # ---------------------------------------------------------------------------
+
 
 def initialize_north_star(answers: dict[str, Any], actor: str) -> NorthStar:
     """Turn a dict of setup-flow answers into a North Star.
@@ -497,6 +497,7 @@ def initialize_north_star(answers: dict[str, Any], actor: str) -> NorthStar:
 # ---------------------------------------------------------------------------
 # Jinja2 template rendering (used by CLI)
 # ---------------------------------------------------------------------------
+
 
 def render_north_star_template(answers: dict[str, Any]) -> str:
     """Render the Jinja2 skeleton template with escaped answer text."""

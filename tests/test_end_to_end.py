@@ -218,7 +218,7 @@ def test_full_pr_interview_cycle(
 
 
 def test_integrated_interview_workflow_with_governance(
-    repo_and_store: tuple[Path, MemoryStore]
+    repo_and_store: tuple[Path, MemoryStore],
 ) -> None:
     from guardian import governance
     from guardian.cli import GuardianConfig, _format_report_comment
@@ -271,12 +271,12 @@ def test_integrated_interview_workflow_with_governance(
 
     client = MagicMock()
     client.chat.completions.create.side_effect = [
-        _llm_response(intent_json),      # assess_intent
-        _llm_response(alignment_json),   # evaluate_alignment
-        _llm_response(ap_match_json),    # detect_anti_patterns
-        _llm_response("Chronicle summary for bob."), # _draft_chronicle
-        _llm_response('["Consider using a helper class instead"]'), # _draft_suggestions
-        _llm_response("CREATE: bob-saga"), # assign_saga
+        _llm_response(intent_json),  # assess_intent
+        _llm_response(alignment_json),  # evaluate_alignment
+        _llm_response(ap_match_json),  # detect_anti_patterns
+        _llm_response("Chronicle summary for bob."),  # _draft_chronicle
+        _llm_response('["Consider using a helper class instead"]'),  # _draft_suggestions
+        _llm_response("CREATE: bob-saga"),  # assign_saga
     ]
 
     north_star = read_north_star(store)
@@ -360,12 +360,16 @@ def test_integrated_interview_workflow_with_governance(
     assert store.exists("memory/drift-ledger.json")
     drift_ledger = store.read_json("memory/drift-ledger.json")
     # Should contain 2 events: one for drift evaluation, one for anti-pattern
-    assert len(drift_ledger) == 2 or (isinstance(drift_ledger, dict) and len(drift_ledger["events"]) == 2)
+    assert len(drift_ledger) == 2 or (
+        isinstance(drift_ledger, dict) and len(drift_ledger["events"]) == 2
+    )
 
     # D. Variance debt timer assertions
     assert store.exists("memory/debt-timers.json")
     debt_timers = store.read_json("memory/debt-timers.json")
-    assert len(debt_timers) == 1 or (isinstance(debt_timers, dict) and len(debt_timers["timers"]) == 1)
+    assert len(debt_timers) == 1 or (
+        isinstance(debt_timers, dict) and len(debt_timers["timers"]) == 1
+    )
 
     # E. Dashboard assertions
     assert store.exists("memory/dashboard.html")

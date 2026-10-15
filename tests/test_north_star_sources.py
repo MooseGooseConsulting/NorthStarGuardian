@@ -72,9 +72,7 @@ def test_read_repo_north_star_markdown_can_read_git_ref_instead_of_checkout(
 
     write_repo_north_star(repo, _sample("HeadPolicy"))
     outside = tmp_path / "outside.md"
-    outside.write_text(
-        render_north_star_markdown(_sample("ExternalPolicy")), encoding="utf-8"
-    )
+    outside.write_text(render_north_star_markdown(_sample("ExternalPolicy")), encoding="utf-8")
     (repo / "docs" / "northstar.md").unlink()
     (repo / "docs" / "northstar.md").symlink_to(outside)
 
@@ -87,6 +85,7 @@ def test_read_repo_north_star_markdown_can_read_git_ref_instead_of_checkout(
 
 def test_read_repo_north_star_markdown_rejects_flag_injection(tmp_path: Path) -> None:
     import pytest
+
     repo = tmp_path / "repo"
     repo.mkdir()
 
