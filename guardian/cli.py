@@ -156,7 +156,7 @@ def _load_review_north_star(
                     "from a trusted run."
                 ) from exc
             if persist:
-                store.write(active_path, content)
+                store.write(northstar_path, content)
                 store.write_json(
                     "memory/northstar-snapshot.json",
                     {
@@ -716,7 +716,7 @@ def _handle_amend(
                 f"## Guardian Amendment Applied\n\n"
                 f"**Principle `{target_id}`** updated to:\n\n"
                 f"> {new_text}\n\n"
-                f"North Star version is now **v{updated.version}**."
+                f"North Star version is now **v{updated.version}**.{repo_source_note}"
             )
     except (ValueError, FileNotFoundError, click.ClickException) as exc:
         reply = f"Guardian: amendment failed — {exc}"

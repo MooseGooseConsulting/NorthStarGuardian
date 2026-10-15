@@ -9,6 +9,8 @@ must commit the changed checkout through their usual repo workflow.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -79,15 +81,34 @@ class MemoryStore:
         return self._resolve(path).exists()
 
     def write(self, path: str, content: str, message: str = "") -> None:
-        """Write *content* to *path* in ``.github/guardian``.
+        """Write *content* to *path* in ``.github/guardian`` atomically.
 
         ``message`` is accepted for API compatibility with the old batched
         storage interface; repo-native writes do not commit automatically.
         """
         _ = message
         full = self._resolve(path)
-        full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_text(content, encoding="utf-8")  # NOSONAR - confined by _resolve().
+        parent = full.parent
+        parent.mkdir(parents=True, exist_ok=True)
+
+        # Atomic write-replace pattern
+        fd, temp_path = tempfile.mkstemp(dir=parent, prefix=f"{full.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, full)
+            if os.name == "posix":
+                dir_fd = os.open(parent, os.O_RDONLY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+        except Exception as exc:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise MemoryError(f"Failed to write to {path}: {exc}") from exc
 
     def write_json(self, path: str, obj: Any, message: str = "") -> None:
         """Serialise *obj* as pretty-printed JSON and write it."""
@@ -110,32 +131,9 @@ class MemoryStore:
         return results
 
     def commit_and_push(self, message: str, push: bool = True) -> None:
-        """Stage guardian state files and optionally push to origin."""
-        try:
-            storage = str(self.storage_path)
-            subprocess.run(
-                ["git", "-C", str(self.repo_root), "add", storage],
-                check=True,
-                capture_output=True,
-            )
-            result = subprocess.run(
-                ["git", "-C", str(self.repo_root), "diff", "--cached", "--quiet"],
-                capture_output=True,
-            )
-            if result.returncode != 0:  # staged changes exist
-                subprocess.run(
-                    ["git", "-C", str(self.repo_root), "commit", "-m", message],
-                    check=True,
-                    capture_output=True,
-                )
-                if push:
-                    subprocess.run(
-                        ["git", "-C", str(self.repo_root), "push"],
-                        check=True,
-                        capture_output=True,
-                    )
-        except subprocess.CalledProcessError:
-            pass  # best-effort; callers do not depend on push success
+        """No-op compatibility boundary for repo-native storage."""
+        _ = (message, push)
+        return None
 
     @contextmanager
     def session(self, message: str, push: bool = True) -> Generator[MemoryStore, None, None]:

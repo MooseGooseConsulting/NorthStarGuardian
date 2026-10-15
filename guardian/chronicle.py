@@ -261,11 +261,11 @@ def write_journal_entry(
 ) -> JournalEntry:
     """Compose and persist a narrative journal entry for *report*.
 
-    The file is written to ``memory/journal/YYYY-MM-DD-pr-NN.md``.
+    The file is written to a time-sortable, per-run file under ``memory/journal``.
     Returns the created :class:`JournalEntry`.
     """
-    date_str = report.created_at.strftime("%Y-%m-%d")
-    filename = f"memory/journal/{date_str}-pr-{report.pr_number}.md"
+    timestamp = report.created_at.astimezone(UTC).strftime("%Y-%m-%dT%H-%M-%S.%fZ")
+    filename = f"memory/journal/{timestamp}-pr-{report.pr_number}.md"
     body = _compose_journal_markdown(report, saga)
     store.write(filename, body)
 

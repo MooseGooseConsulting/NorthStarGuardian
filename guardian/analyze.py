@@ -282,18 +282,18 @@ def _call_llm(
 def _parse_json_response(raw: str, context: str) -> Any:
     """Strip optional markdown fences and parse JSON from *raw*.
 
+    Supports extracting JSON from within markdown code blocks even when the
+    response includes preamble or notes.
+
     Raises LLMOutputError with *context* if parsing fails.
     """
-    text = raw.strip()
-    # Strip ```json ... ``` or ``` ... ``` fences if present
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    text = text.strip()
+    match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
+    text = match.group(1).strip() if match else raw.strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
         raise LLMOutputError(
-            f"JSON parse failure in {context}: {exc}\nRaw output:\n{raw[:500]}"
+            f"JSON parse failure in {context}: {exc}\nRaw output snippet:\n{raw[:1000]}"
         ) from exc
 
 
@@ -685,7 +685,8 @@ def run_interview(
     1. assess_intent (PR title/body/commits → IntentSummary)
     2. evaluate_alignment (diff + North Star → per-principle verdicts)
     3. detect_anti_patterns (diff + anti-patterns registry → matches)
-    4. One more LLM call to draft the chronicle paragraph.
+    4. Draft the chronicle paragraph.
+    5. Draft optional actionable suggestions.
 
     Overall verdict: worst per-principle outcome (drift > ambiguous > aligned).
 
@@ -747,6 +748,16 @@ def run_interview(
         model=model,
     )
 
+    suggestions = _draft_suggestions(
+        diff=diff,
+        north_star=north_star,
+        intent=intent,
+        evaluations=evaluations,
+        overall_verdict=overall_verdict,
+        client=client,
+        model=model,
+    )
+
     return InterviewReport(
         pr_number=diff.pr_number,
         overall_verdict=overall_verdict,
@@ -754,7 +765,7 @@ def run_interview(
         principle_evaluations=evaluations,
         anti_pattern_matches=ap_matches,
         saga_id=None,  # saga assignment is handled by the chronicle module
-        suggestions=[],  # concrete suggestions are a downstream concern
+        suggestions=suggestions,
         chronicle_paragraph=chronicle_paragraph,
         intent=intent,
         created_at=datetime.now(tz=UTC),
@@ -807,3 +818,49 @@ def _draft_chronicle(
     )
 
     return _call_llm(client, model=model, system=system, user=user, max_tokens=512)
+
+
+def _draft_suggestions(
+    *,
+    diff: DiffAnalysis,
+    north_star: NorthStar,
+    intent: IntentSummary,
+    evaluations: list[PrincipleEvaluation],
+    overall_verdict: Verdict,
+    client: Any,
+    model: str,
+) -> list[str]:
+    """Ask the LLM for up to three concrete suggestions.
+
+    Suggestions are optional: malformed output and provider failures should not
+    prevent the core interview from completing. Unexpected programming errors
+    still propagate so they are visible to maintainers.
+    """
+    prompt = _render(
+        "draft_suggestions.md.j2",
+        diff=diff,
+        north_star=north_star,
+        intent=intent,
+        evaluations=evaluations,
+        overall_verdict=overall_verdict.value,
+    )
+
+    try:
+        raw = _call_llm(
+            client,
+            model=model,
+            system="You are the Repository Guardian. Suggest 1-3 improvements in a JSON array of strings.",
+            user=prompt,
+            max_tokens=256,
+        )
+        data = _parse_json_response(raw, "suggestions")
+        if isinstance(data, list):
+            return [str(s) for s in data][:3]
+        return []
+    except (LLMOutputError, OpenAIError) as exc:
+        _LOGGER.warning(
+            "Optional suggestions request failed (%s): %s; continuing without suggestions",
+            type(exc).__name__,
+            exc,
+        )
+        return []

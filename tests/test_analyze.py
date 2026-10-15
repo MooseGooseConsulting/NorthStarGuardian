@@ -824,6 +824,7 @@ class TestRunInterview:
         chronicle_resp = (
             "PR #42 added a new analysis step. It aligns with the declared architecture."
         )
+        suggestions_resp = '["Ensure tests cover the new step", "Update docs"]'
 
         client = MagicMock()
         responses = []
@@ -963,5 +964,69 @@ class TestRunInterview:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = self._make_all_mock_client(north_star)
         run_interview(diff, north_star, client=client, model="test", pr_meta=simple_pr_meta)
-        # 1 assess_intent + 1 evaluate_alignment + 1 detect_anti_patterns + 1 chronicle
-        assert client.chat.completions.create.call_count == 4
+        # 1 intent + 1 alignment + 1 patterns + 1 chronicle + 1 suggestions
+        assert client.chat.completions.create.call_count == 5
+
+
+class TestDraftSuggestions:
+    def test_parses_valid_json_list(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = _make_client('["S1", "S2"]')
+
+        suggestions = _draft_suggestions(
+            diff=diff,
+            north_star=north_star,
+            intent=MagicMock(),
+            evaluations=[],
+            overall_verdict=Verdict.ALIGNED,
+            client=client,
+            model="test",
+        )
+
+        assert suggestions == ["S1", "S2"]
+
+    def test_provider_failure_is_optional_and_logged(
+        self,
+        north_star: NorthStar,
+        simple_pr_meta: dict[str, Any],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from openai import OpenAIError
+
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = MagicMock()
+        client.chat.completions.create.side_effect = OpenAIError("temporary service outage")
+
+        with caplog.at_level(logging.WARNING, logger="guardian.analyze"):
+            suggestions = _draft_suggestions(
+                diff=diff,
+                north_star=north_star,
+                intent=MagicMock(),
+                evaluations=[],
+                overall_verdict=Verdict.ALIGNED,
+                client=client,
+                model="test",
+            )
+
+        assert suggestions == []
+        assert "temporary service outage" in caplog.text
+
+    def test_unexpected_errors_propagate(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
+    ) -> None:
+        diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
+        client = MagicMock()
+        client.chat.completions.create.side_effect = RuntimeError("unexpected bug")
+
+        with pytest.raises(RuntimeError, match="unexpected bug"):
+            _draft_suggestions(
+                diff=diff,
+                north_star=north_star,
+                intent=MagicMock(),
+                evaluations=[],
+                overall_verdict=Verdict.ALIGNED,
+                client=client,
+                model="test",
+            )

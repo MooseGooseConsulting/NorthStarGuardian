@@ -38,7 +38,7 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 def _jinja_env() -> Environment:
     return Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-        autoescape=False,
+        autoescape=True,
         keep_trailing_newline=True,
     )
 
@@ -357,8 +357,9 @@ def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
         return []
     try:
         raw = store.read_json("memory/drift-ledger.json")
+        items = raw if isinstance(raw, list) else raw.get("events", [])
         events: list[DriftEvent] = []
-        for item in raw.get("events", []):
+        for item in items:
             events.append(DriftEvent(**item))
         return events
     except (ValueError, KeyError):

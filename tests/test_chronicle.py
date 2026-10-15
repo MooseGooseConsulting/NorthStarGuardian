@@ -6,7 +6,7 @@ The OpenAI client is mocked for assign_saga tests.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest

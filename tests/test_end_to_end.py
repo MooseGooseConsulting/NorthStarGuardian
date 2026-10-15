@@ -222,7 +222,7 @@ def test_integrated_interview_workflow_with_governance(
 ) -> None:
     from guardian import governance
     from guardian.cli import GuardianConfig, _format_report_comment
-    from guardian.models import Verdict
+    from guardian.models import DriftSeverity, Verdict
     from guardian.north_star import read_north_star
 
     _repo, store = repo_and_store
@@ -310,7 +310,7 @@ def test_integrated_interview_workflow_with_governance(
     # Log drift for specific principle evaluations.
     for pe in report.principle_evaluations:
         if pe.verdict == Verdict.DRIFT:
-            severity = governance.map_drift_severity("drift")
+            severity = DriftSeverity.MEDIUM
             governance.log_drift(
                 store,
                 pr_number=report.pr_number,
@@ -321,7 +321,7 @@ def test_integrated_interview_workflow_with_governance(
 
     # Log drift for detected anti-patterns.
     for apm in report.anti_pattern_matches:
-        severity = governance.map_drift_severity("anti-pattern")
+        severity = DriftSeverity.HIGH
         governance.log_drift(
             store,
             pr_number=report.pr_number,
